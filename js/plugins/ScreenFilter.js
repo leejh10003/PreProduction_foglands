@@ -1,19 +1,59 @@
 /*:
- * @plugindesc Simple contrast / saturation / brightness filter for RPG Maker MV
- * @author ChatGPT
+ * @plugindesc 화면 필터: 대비 / 채도 / 밝기 조절
+ * @author Lee, JunHyuk
+ *
+ * @param Default Contrast
+ * @type number
+ * @decimals 2
+ * @min 0
+ * @default 1.00
+ * @desc 기본 대비 값. 1.0이 원본입니다.
+ *
+ * @param Default Saturation
+ * @type number
+ * @decimals 2
+ * @min 0
+ * @default 1.00
+ * @desc 기본 채도 값. 0이면 흑백, 1.0이 원본입니다.
+ *
+ * @param Default Brightness
+ * @type number
+ * @decimals 2
+ * @min 0
+ * @default 1.00
+ * @desc 기본 밝기 값. 1.0이 원본입니다.
+ *
+ * @param Auto Apply On Map
+ * @type boolean
+ * @on ON
+ * @off OFF
+ * @default false
+ * @desc 맵 시작 시 자동으로 필터를 적용할지 여부입니다.
  *
  * @help
  * Plugin Commands:
  *
- * ScreenFilter contrast 1.25 saturation 0.8 brightness 0.95
- * ScreenFilter off
+ *   ScreenFilter on
+ *   ScreenFilter off
+ *   ScreenFilter contrast 1.25 saturation 0.8 brightness 0.95
  */
 
 (function() {
+    'use strict';
+
+    var pluginName = 'ScreenFilter';
+    var parameters = PluginManager.parameters(pluginName);
+
     var _filterEnabled = false;
-    var _contrast = 1.0;
-    var _saturation = 1.0;
-    var _brightness = 1.0;
+    var _contrast = Number(parameters['Default Contrast'] || 1.0);
+    var _saturation = Number(parameters['Default Saturation'] || 1.0);
+    var _brightness = Number(parameters['Default Brightness'] || 1.0);
+    var _autoApply = String(parameters['Auto Apply On Map'] || 'false') === 'true';
+
+    if (_autoApply) {
+        _filterEnabled = true;
+    }
+
     var _filter = null;
 
     var fragmentSrc =
@@ -34,9 +74,7 @@
 
     function createFilter() {
         _filter = new PIXI.Filter(null, fragmentSrc);
-        _filter.uniforms.contrast = _contrast;
-        _filter.uniforms.saturation = _saturation;
-        _filter.uniforms.brightness = _brightness;
+        updateFilterUniforms();
         return _filter;
     }
 
@@ -44,22 +82,23 @@
         if (!_filter) {
             createFilter();
         }
+        updateFilterUniforms();
+        return _filter;
+    }
+
+    function updateFilterUniforms() {
+        if (!_filter) return;
 
         _filter.uniforms.contrast = _contrast;
         _filter.uniforms.saturation = _saturation;
         _filter.uniforms.brightness = _brightness;
-
-        return _filter;
     }
 
     function targetContainer() {
         var scene = SceneManager._scene;
         if (!scene) return null;
 
-        // 맵 화면에 적용
         if (scene._spriteset) return scene._spriteset;
-
-        // 혹시 다른 씬이면 베이스 스프라이트
         if (scene._baseSprite) return scene._baseSprite;
 
         return null;
@@ -71,25 +110,26 @@
 
         var filter = getFilter();
 
-        if (!target.filters) {
-            target.filters = [];
-        }
+        target.filterArea = new PIXI.Rectangle(0, 0, Graphics.width, Graphics.height);
 
-        if (target.filters.indexOf(filter) < 0) {
-            target.filters.push(filter);
+        var filters = target.filters ? target.filters.slice() : [];
+
+        if (filters.indexOf(filter) === -1) {
+            filters.push(filter);
+            target.filters = filters;
         }
     }
 
     function removeFilter() {
         var target = targetContainer();
-        if (!target || !target.filters) return;
+        if (!target || !target.filters || !_filter) return;
 
-        target.filters = target.filters.filter(function(f) {
-            return f !== _filter;
-        });
+        var filters = target.filters.slice();
+        var index = filters.indexOf(_filter);
 
-        if (target.filters.length === 0) {
-            target.filters = null;
+        if (index !== -1) {
+            filters.splice(index, 1);
+            target.filters = filters.length > 0 ? filters : null;
         }
     }
 
@@ -98,12 +138,19 @@
 
     Game_Interpreter.prototype.pluginCommand = function(command, args) {
         _Game_Interpreter_pluginCommand.call(this, command, args);
+        console.log(command, args);
 
         if (command !== 'ScreenFilter') return;
 
         if (args[0] === 'off') {
             _filterEnabled = false;
             removeFilter();
+            return;
+        }
+
+        if (args[0] === 'on') {
+            _filterEnabled = true;
+            applyFilter();
             return;
         }
 
@@ -117,20 +164,14 @@
         }
 
         _filterEnabled = true;
+        updateFilterUniforms();
         applyFilter();
     };
 
     var _Scene_Map_start = Scene_Map.prototype.start;
     Scene_Map.prototype.start = function() {
         _Scene_Map_start.call(this);
-        if (_filterEnabled) {
-            applyFilter();
-        }
-    };
 
-    var _Scene_Map_update = Scene_Map.prototype.update;
-    Scene_Map.prototype.update = function() {
-        _Scene_Map_update.call(this);
         if (_filterEnabled) {
             applyFilter();
         }
