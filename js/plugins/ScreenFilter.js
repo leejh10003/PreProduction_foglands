@@ -29,6 +29,35 @@
  * @off OFF
  * @default false
  * @desc 맵 시작 시 자동으로 필터를 적용할지 여부입니다.
+ * 
+ * @param Tint Red
+ * @type number
+ * @min 0
+ * @max 255
+ * @default 0
+ * @desc 더할 색조의 Red 값입니다. 0~255.
+ *
+ * @param Tint Green
+ * @type number
+ * @min 0
+ * @max 255
+ * @default 0
+ * @desc 더할 색조의 Green 값입니다. 0~255.
+ *
+ * @param Tint Blue
+ * @type number
+ * @min 0
+ * @max 255
+ * @default 0
+ * @desc 더할 색조의 Blue 값입니다. 0~255.
+ *
+ * @param Tint Strength
+ * @type number
+ * @decimals 2
+ * @min 0
+ * @max 1
+ * @default 0.00
+ * @desc 색조 강도입니다. 0이면 없음, 1이면 강함.
  *
  * @help
  * Plugin Commands:
@@ -49,6 +78,10 @@
     var _saturation = Number(parameters['Default Saturation'] || 1.0);
     var _brightness = Number(parameters['Default Brightness'] || 1.0);
     var _autoApply = String(parameters['Auto Apply On Map'] || 'false') === 'true';
+    var _tintRed = Number(parameters['Tint Red'] || 0.0);
+    var _tintGreen = Number(parameters['Tint Green'] || 0.0);
+    var _tintBlue = Number(parameters['Tint Blue'] || 0.0);
+    var _tintStrength = Number(parameters['Tint Strength'] || 0.0);
 
     if (_autoApply) {
         _filterEnabled = true;
@@ -62,6 +95,8 @@
         'uniform float contrast;\n' +
         'uniform float saturation;\n' +
         'uniform float brightness;\n' +
+        'uniform vec3 tintColor;\n' +
+        'uniform float tintStrength;\n' +
         '\n' +
         'void main(void) {\n' +
         '    vec4 color = texture2D(uSampler, vTextureCoord);\n' +
@@ -69,6 +104,7 @@
         '    color.rgb = (color.rgb - 0.5) * contrast + 0.5;\n' +
         '    float gray = dot(color.rgb, vec3(0.299, 0.587, 0.114));\n' +
         '    color.rgb = mix(vec3(gray), color.rgb, saturation);\n' +
+        '    color.rgb = mix(color.rgb, color.rgb * tintColor, tintStrength);\n' +
         '    gl_FragColor = color;\n' +
         '}\n';
 
@@ -92,6 +128,13 @@
         _filter.uniforms.contrast = _contrast;
         _filter.uniforms.saturation = _saturation;
         _filter.uniforms.brightness = _brightness;
+        _filter.uniforms.tintColor = [
+            _tintRed / 255,
+            _tintGreen / 255,
+            _tintBlue / 255
+
+        ];
+        _filter.uniforms.tintStrength = _tintStrength;
     }
 
     function targetContainer() {
@@ -161,6 +204,10 @@
             if (key === 'contrast') _contrast = value;
             if (key === 'saturation') _saturation = value;
             if (key === 'brightness') _brightness = value;
+            if (key === 'tintRed') _tintRed = value;
+            if (key === 'tintGreen') _tintGreen = value;
+            if (key === 'tintBlue') _tintBlue = value;
+            if (key === 'tintStrength') _tintStrength = value;
         }
 
         _filterEnabled = true;
