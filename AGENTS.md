@@ -11,6 +11,7 @@ The player/hero is the actual combat performer. Companions will eventually act a
 Focus on these files for the current battle prototype:
 
 - `data/FogCards.json`
+- `js/plugins/Foglands_Cards.js`
 - `js/plugins/Foglands_MapBattle.js`
 - `js/plugins/ScreenFilter.js`
 - `js/plugins.js`
@@ -187,14 +188,19 @@ The file is a static definition table only. Duplicate ownership, upgrades, deck 
 
 Do not add duplicate static definitions just because the starting deck contains multiple copies. Starting deck composition should be represented by multiple runtime instances pointing to the same `cardId`.
 
-Expected future plugin:
+Current card plugin:
 
 - `js/plugins/Foglands_Cards.js`
 
-Expected responsibilities:
+Current responsibilities:
 
 - Load `data/FogCards.json` into a global such as `$dataFogCards`.
 - Parse card note tags.
+- Provide a read-only MV-window card listing interface.
+- Open the card list with plugin command `FogCards open` or `FogCards list`.
+
+Future responsibilities:
+
 - Create runtime card instances.
 - Provide helpers for starter deck, reward pools, upgrades, removals, and effect interpretation.
 
@@ -206,8 +212,9 @@ Current relevant plugin order:
 
 1. `MadeWithMv`
 2. `ScreenFilter`
-3. `Foglands_MapBattle`
-4. `Community_Basic`
+3. `Foglands_Cards`
+4. `Foglands_MapBattle`
+5. `Community_Basic`
 
 If `Foglands_MapBattle` appears not to load, check this file first and confirm the plugin is also enabled in MV's Plugin Manager.
 
