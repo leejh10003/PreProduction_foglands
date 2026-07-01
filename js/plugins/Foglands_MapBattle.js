@@ -28,6 +28,10 @@
  * - Event command "Battle Processing" is routed to the battle map.
  * - Random encounters are routed to the battle map.
  * - The triggered troop and return position are stored on $gameSystem.
+ * - Enemy slot events tagged with <FogEnemySlot:n> are assigned sprites
+ *   from enemy note tags:
+ *     <FogChar:Monster>
+ *     <FogCharIndex:0>
  *
  * This plugin does not run the custom battle simulation yet.
  */
@@ -86,6 +90,68 @@
         $gamePlayer.reserveTransfer(r.mapId, r.x, r.y, r.direction || 2, 0);
     };
 
+    FoglandsMapBattle.isBattleMap = function() {
+        return $gameMap && $gameMap.mapId && $gameMap.mapId() === battleMapId;
+    };
+
+    FoglandsMapBattle.enemySprite = function(enemyId) {
+        var enemy = $dataEnemies[enemyId];
+        if (!enemy || !enemy.meta) return null;
+
+        var characterName = enemy.meta.FogChar || enemy.meta.FogCharacter;
+        var characterIndex = Number(enemy.meta.FogCharIndex || enemy.meta.FogCharacterIndex || 0);
+        if (!characterName) return null;
+
+        return {
+            characterName: characterName,
+            characterIndex: characterIndex
+        };
+    };
+
+    FoglandsMapBattle.enemySlotEvents = function() {
+        return $gameMap.events().filter(function(event) {
+            return event && event.event() && event.event().meta && event.event().meta.FogEnemySlot;
+        }).sort(function(a, b) {
+            return Number(a.event().meta.FogEnemySlot) - Number(b.event().meta.FogEnemySlot);
+        });
+    };
+
+    FoglandsMapBattle.clearEnemySlot = function(event) {
+        event.setImage('', 0);
+        event.setTransparent(true);
+    };
+
+    FoglandsMapBattle.applyEnemySlot = function(event, member) {
+        if (!member || member.hidden) {
+            FoglandsMapBattle.clearEnemySlot(event);
+            return;
+        }
+
+        var sprite = FoglandsMapBattle.enemySprite(member.enemyId);
+        if (!sprite) {
+            FoglandsMapBattle.clearEnemySlot(event);
+            return;
+        }
+
+        event.setImage(sprite.characterName, sprite.characterIndex);
+        event.setDirection(2);
+        event.setPattern(1);
+        event.setTransparent(false);
+    };
+
+    FoglandsMapBattle.setupEnemySlots = function() {
+        if (!FoglandsMapBattle.isBattleMap()) return;
+
+        var state = FoglandsMapBattle.current();
+        var troop = state && $dataTroops[state.troopId];
+        var members = troop ? troop.members : [];
+        var slots = FoglandsMapBattle.enemySlotEvents();
+
+        slots.forEach(function(event, index) {
+            FoglandsMapBattle.applyEnemySlot(event, members[index]);
+        });
+    };
+
     // Battle Processing
     Game_Interpreter.prototype.command301 = function() {
         if (!$gameParty.inBattle()) {
@@ -97,7 +163,6 @@
             } else {
                 troopId = $gamePlayer.makeEncounterTroopId();
             }
-            console.log(troopId, $dataTroops);
             if ($dataTroops[troopId]) {
                 this._branch[this._indent] = 0;
                 FoglandsMapBattle.start(troopId, this._params[2], this._params[3], 'event');
@@ -115,5 +180,11 @@
                 FoglandsMapBattle.start(troopId, true, false, 'encounter');
             }
         }
+    };
+
+    var _Scene_Map_start = Scene_Map.prototype.start;
+    Scene_Map.prototype.start = function() {
+        _Scene_Map_start.call(this);
+        FoglandsMapBattle.setupEnemySlots();
     };
 })();
