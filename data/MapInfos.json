@@ -2,5 +2,5 @@
 null,
 {"id":1,"expanded":false,"name":"MAP001","order":1,"parentId":0,"scrollX":814.6666666666666,"scrollY":970},
 {"id":2,"expanded":true,"name":"MAP002","order":2,"parentId":0,"scrollX":819,"scrollY":457},
-{"id":3,"expanded":false,"name":"시가지","order":3,"parentId":2,"scrollX":811,"scrollY":1136}
+{"id":3,"expanded":false,"name":"시가지","order":3,"parentId":2,"scrollX":811,"scrollY":1128}
 ]
