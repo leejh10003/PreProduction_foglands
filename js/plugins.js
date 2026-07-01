@@ -4,6 +4,7 @@ var $plugins =
 [
 {"name":"MadeWithMv","status":true,"description":"Show a Splash Screen \"Made with MV\" and/or a Custom Splash Screen before going to main screen.","parameters":{"Show Made With MV":"true","Made with MV Image":"MadeWithMv","Show Custom Splash":"false","Custom Image":"","Fade Out Time":"120","Fade In Time":"120","Wait Time":"160"}},
 {"name":"ScreenFilter","status":true,"description":"화면 필터: 대비 / 채도 / 밝기 조절","parameters":{"Default Contrast":"1.00","Default Saturation":"1.00","Default Brightness":"1.00","Auto Apply On Map":"false"}},
+{"name":"Foglands_Cards","status":true,"description":"Loads Foglands cards and shows them in an RPG Maker MV style list window.","parameters":{}},
 {"name":"Foglands_MapBattle","status":true,"description":"Routes RPG Maker MV battles into a top-view map battle space.","parameters":{"Battle Map Id":"2","Battle X":"4","Battle Y":"13"}},
 {"name":"Community_Basic","status":true,"description":"Plugin used to set basic parameters.","parameters":{"cacheLimit":"10","screenWidth":"816","screenHeight":"624","changeWindowWidthTo":"","changeWindowHeightTo":"","renderingMode":"auto","alwaysDash":"off"}}
 ];
