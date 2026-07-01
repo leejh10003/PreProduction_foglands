@@ -181,7 +181,6 @@
 
     Game_Interpreter.prototype.pluginCommand = function(command, args) {
         _Game_Interpreter_pluginCommand.call(this, command, args);
-        console.log(command, args);
 
         if (command !== 'ScreenFilter') return;
 
