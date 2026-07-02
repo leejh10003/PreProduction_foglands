@@ -197,12 +197,15 @@ Current responsibilities:
 - Load `data/FogCards.json` into a global such as `$dataFogCards`.
 - Parse card note tags.
 - Provide an MV-window card listing interface.
-- Store selected static card ids in `$gameSystem._fogSelectedCardIds`.
+- Create the prototype starter card collection as runtime instances in `$gameSystem._fogCardInstances`.
+- Store selected runtime card uids in `$gameSystem._fogSelectedCardUids`.
 - Toggle card selection with OK/Enter in the card list.
 - Show selected rows with `(선택)` text.
+- Display each row as a card instance, including `#uid`, so duplicate cards are listed separately.
 - Enforce `Max Selection` with queue behavior: selecting beyond the cap removes the oldest selected card.
 - Open the card list with plugin command `FogCards open` or `FogCards list`.
 - Clear selection with plugin command `FogCards clear`.
+- Reset the starter runtime collection with plugin command `FogCards reset`.
 
 Future responsibilities:
 
@@ -273,7 +276,7 @@ The original HTML prototype already implements several combat rules that are not
 
 ### 1. Starter Deck Recipe
 
-`data/FogCards.json` has static card definitions, but the starting collection still needs a runtime instance recipe.
+`data/FogCards.json` has static card definitions. `Foglands_Cards.js` now creates the prototype starting collection as runtime instances.
 
 Prototype recipe:
 
@@ -293,6 +296,20 @@ const starterDeck = () => [
 ```
 
 MV direction: create multiple runtime instances pointing to the relevant `FogCards.json` `cardId`s. Do not duplicate static card definitions.
+
+Current runtime shape:
+
+```js
+{ uid: 1, cardId: 1, upgraded: false }
+```
+
+Current storage:
+
+```js
+$gameSystem._fogCardInstances
+$gameSystem._fogNextCardUid
+$gameSystem._fogSelectedCardUids
+```
 
 ### 2. Battle Card Selection Rules
 
