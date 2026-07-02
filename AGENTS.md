@@ -196,8 +196,13 @@ Current responsibilities:
 
 - Load `data/FogCards.json` into a global such as `$dataFogCards`.
 - Parse card note tags.
-- Provide a read-only MV-window card listing interface.
+- Provide an MV-window card listing interface.
+- Store selected static card ids in `$gameSystem._fogSelectedCardIds`.
+- Toggle card selection with OK/Enter in the card list.
+- Show selected rows with `(선택)` text.
+- Enforce `Max Selection` with queue behavior: selecting beyond the cap removes the oldest selected card.
 - Open the card list with plugin command `FogCards open` or `FogCards list`.
+- Clear selection with plugin command `FogCards clear`.
 
 Future responsibilities:
 

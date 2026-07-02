@@ -8,15 +8,26 @@
  * Plugin Commands:
  *   FogCards open
  *   FogCards list
+ *   FogCards clear
  *
  * Current scope:
  * - Loads data/FogCards.json as $dataFogCards.
- * - Provides a read-only card list interface using MV windows.
- * - This does not implement deck selection yet.
+ * - Provides a card list interface using MV windows.
+ * - Supports simple global multi-selection.
+ *
+ * @param Max Selection
+ * @type number
+ * @min 1
+ * @default 7
+ * @desc Maximum number of selected cards. When exceeded, the oldest selected card is removed.
  */
 
 (function() {
     'use strict';
+
+    var pluginName = 'Foglands_Cards';
+    var params = PluginManager.parameters(pluginName);
+    var maxSelection = Number(params['Max Selection'] || 7);
 
     window.$dataFogCards = null;
     DataManager._databaseFiles.push({ name: '$dataFogCards', src: 'FogCards.json' });
@@ -48,6 +59,53 @@
         return ($dataFogCards || []).filter(function(card) {
             return !!card;
         });
+    };
+
+    FoglandsCards.selection = function() {
+        if (!$gameSystem._fogSelectedCardIds) {
+            $gameSystem._fogSelectedCardIds = [];
+        }
+        return $gameSystem._fogSelectedCardIds;
+    };
+
+    FoglandsCards.selectedCardIds = function() {
+        return FoglandsCards.selection().slice();
+    };
+
+    FoglandsCards.selectedCards = function() {
+        return FoglandsCards.selectedCardIds().map(function(cardId) {
+            return $dataFogCards[cardId];
+        }).filter(function(card) {
+            return !!card;
+        });
+    };
+
+    FoglandsCards.isSelected = function(cardId) {
+        return FoglandsCards.selection().indexOf(cardId) >= 0;
+    };
+
+    FoglandsCards.toggleSelection = function(cardId) {
+        var selected = FoglandsCards.selection();
+        var index = selected.indexOf(cardId);
+
+        if (index >= 0) {
+            selected.splice(index, 1);
+            return false;
+        }
+
+        selected.push(cardId);
+        while (selected.length > maxSelection) {
+            selected.shift();
+        }
+        return true;
+    };
+
+    FoglandsCards.clearSelection = function() {
+        $gameSystem._fogSelectedCardIds = [];
+    };
+
+    FoglandsCards.maxSelection = function() {
+        return maxSelection;
     };
 
     FoglandsCards.categoryLabel = function(category) {
@@ -112,15 +170,21 @@
 
         var rect = this.itemRectForText(index);
         var iconWidth = Window_Base._iconWidth + 4;
+        var selectedWidth = 62;
         var rateWidth = 58;
         var tierWidth = 64;
         var categoryWidth = 54;
-        var nameWidth = Math.max(120, rect.width - iconWidth - rateWidth - tierWidth - categoryWidth - 12);
+        var nameWidth = Math.max(120, rect.width - iconWidth - selectedWidth -
+            rateWidth - tierWidth - categoryWidth - 16);
         var x = rect.x;
 
         this.resetTextColor();
         this.drawIcon(card.iconIndex || 0, x, rect.y + 2);
         x += iconWidth;
+
+        this.changeTextColor(this.powerUpColor());
+        this.drawText(FoglandsCards.isSelected(card.id) ? '(선택)' : '', x, rect.y, selectedWidth);
+        x += selectedWidth;
 
         this.changeTextColor(this.normalColor());
         this.drawText(card.name, x, rect.y, nameWidth);
@@ -175,8 +239,20 @@
         var height = Graphics.boxHeight - y;
         this._cardWindow = new Window_FogCardList(0, y, Graphics.boxWidth, height);
         this._cardWindow.setHelpWindow(this._helpWindow);
+        this._cardWindow.setHandler('ok', this.onCardOk.bind(this));
         this._cardWindow.setHandler('cancel', this.popScene.bind(this));
         this.addWindow(this._cardWindow);
+    };
+
+    Scene_FogCardList.prototype.onCardOk = function() {
+        var card = this._cardWindow.item();
+        if (card) {
+            FoglandsCards.toggleSelection(card.id);
+            this._cardWindow.refresh();
+            this._cardWindow.select(this._cardWindow.index());
+            this._cardWindow.callUpdateHelp();
+        }
+        this._cardWindow.activate();
     };
 
     window.Scene_FogCardList = Scene_FogCardList;
@@ -191,6 +267,8 @@
         var subcommand = args[0] || 'open';
         if (subcommand === 'open' || subcommand === 'list') {
             SceneManager.push(Scene_FogCardList);
+        } else if (subcommand === 'clear') {
+            FoglandsCards.clearSelection();
         }
     };
 })();
