@@ -38,6 +38,8 @@
  * - The combat phase calls FoglandsCombat.resolve() once and stores its
  *   serializable result on the battle context.
  * - Timeline events are shown through RPG Maker MV's default message window.
+ * - After playback, the player returns to the origin map and the pre-battle
+ *   player/follower formation is restored.
  *
  * Visual battle animations and post-battle accusation are not implemented yet.
  */
@@ -61,12 +63,30 @@
         };
     };
 
+    FoglandsMapBattle.captureFollowerFormation = function() {
+        var formation = [];
+        $gamePlayer.followers().forEach(function(follower, index) {
+            var actor = follower.actor();
+            if (!actor) return;
+            formation.push({
+                index: index,
+                actorId: actor.actorId(),
+                x: follower.x,
+                y: follower.y,
+                direction: follower.direction()
+            });
+        });
+        return formation;
+    };
+
     FoglandsMapBattle.start = function(troopId, canEscape, canLose, source) {
         var returnState = {
             mapId: $gameMap.mapId(),
             x: $gamePlayer.x,
             y: $gamePlayer.y,
-            direction: $gamePlayer.direction()
+            direction: $gamePlayer.direction(),
+            followersVisible: $gamePlayer.followers().isVisible(),
+            followers: FoglandsMapBattle.captureFollowerFormation()
         };
         $gameSystem._foglandsMapBattle = {
             active: true,
@@ -385,6 +405,11 @@
         combat.outcomeApplied = true;
         combat.status = 'finished';
         state.phase = 'result';
+
+        if (!combat.result.outcome.victory && state.canLose) {
+            $gameParty.reviveBattleMembers();
+        }
+        FoglandsMapBattle.returnToOrigin();
     };
 
     FoglandsMapBattle.updateCombatTimeline = function() {
@@ -436,10 +461,58 @@
 
     FoglandsMapBattle.returnToOrigin = function() {
         var state = FoglandsMapBattle.current();
-        if (!state || !state.returnState) return;
+        if (!state || !state.returnState) return false;
+        if (state.phase === 'returning') return true;
         var r = state.returnState;
-        FoglandsMapBattle.clear();
+        state.phase = 'returning';
         $gamePlayer.reserveTransfer(r.mapId, r.x, r.y, r.direction || 2, 0);
+        return true;
+    };
+
+    FoglandsMapBattle.restoreOriginFormation = function() {
+        var state = FoglandsMapBattle.current();
+        if (!state || state.phase !== 'returning' || !state.returnState) return false;
+
+        var r = state.returnState;
+        if ($gameMap.mapId() !== r.mapId || $gamePlayer.isTransferring()) return false;
+
+        $gamePlayer.setDirection(r.direction || 2);
+        if (r.followersVisible === false) {
+            $gamePlayer.followers().hide();
+        } else if (r.followersVisible === true) {
+            $gamePlayer.followers().show();
+        }
+
+        var currentFollowers = [];
+        $gamePlayer.followers().forEach(function(follower, index) {
+            var actor = follower.actor();
+            currentFollowers.push({
+                index: index,
+                actorId: actor ? actor.actorId() : 0,
+                follower: follower
+            });
+        });
+
+        var usedIndexes = {};
+        (r.followers || []).forEach(function(saved) {
+            var match = currentFollowers.filter(function(current) {
+                return !usedIndexes[current.index] && saved.actorId && current.actorId === saved.actorId;
+            })[0];
+            if (!match) {
+                match = currentFollowers.filter(function(current) {
+                    return !usedIndexes[current.index] && current.index === saved.index;
+                })[0];
+            }
+            if (!match) return;
+
+            usedIndexes[match.index] = true;
+            match.follower.locate(saved.x, saved.y);
+            match.follower.setDirection(saved.direction || 2);
+        });
+
+        $gamePlayer.followers()._gathering = false;
+        FoglandsMapBattle.clear();
+        return true;
     };
 
     FoglandsMapBattle.isBattleMap = function() {
@@ -537,8 +610,16 @@
     var _Scene_Map_start = Scene_Map.prototype.start;
     Scene_Map.prototype.start = function() {
         _Scene_Map_start.call(this);
+        FoglandsMapBattle.restoreOriginFormation();
         FoglandsMapBattle.setupEnemySlots();
         FoglandsMapBattle.resumePhase();
+    };
+
+    var _Scene_Map_checkGameover = Scene_Map.prototype.checkGameover;
+    Scene_Map.prototype.checkGameover = function() {
+        var state = FoglandsMapBattle.current();
+        if (state && state.active && state.phase === 'returning') return;
+        _Scene_Map_checkGameover.call(this);
     };
 
     var _Scene_Map_update = Scene_Map.prototype.update;

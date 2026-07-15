@@ -35,7 +35,7 @@ Current behavior:
 - Opens battle card selection, confirms player/fog picks, and creates the final 10-card deck.
 - Calls the pure combat resolver once and stores its complete result in save-backed state.
 - Plays structured timeline events through MV's default message window.
-- Applies the final hero HP once, then stops at `phase: "result"` on Map002.
+- Applies the final hero HP once, reserves transfer to the origin map, and restores the pre-battle player/follower formation after transfer.
 
 Current battle context shape:
 
@@ -46,7 +46,7 @@ $gameSystem._foglandsMapBattle = {
     canEscape: Boolean,
     canLose: Boolean,
     source: "event" | "encounter",
-    phase: "transfer" | "selection" | "combat" | "result",
+    phase: "transfer" | "selection" | "combat" | "result" | "returning",
     playerPicks: [cardUid],
     fogPicks: [cardUid],
     battleDeck: [cardUid],
@@ -57,7 +57,15 @@ $gameSystem._foglandsMapBattle = {
         mapId: Number,
         x: Number,
         y: Number,
-        direction: Number
+        direction: Number,
+        followersVisible: Boolean,
+        followers: [{
+            index: Number,
+            actorId: Number,
+            x: Number,
+            y: Number,
+            direction: Number
+        }]
     }
 };
 ```
@@ -121,7 +129,11 @@ Enemy database `params[0]` (HP) / `params[2]` (ATK). Database values are the
 active balance source; the prototype scaling formulas are reference material,
 not active combat code.
 
-The helper `FoglandsMapBattle.returnToOrigin()` transfers back to the stored origin and clears this state.
+`FoglandsMapBattle.returnToOrigin()` changes the phase to `returning` and
+reserves the origin transfer without clearing the battle context. MV's transfer
+first synchronizes followers onto the player, so `restoreOriginFormation()`
+runs from the destination `Scene_Map.start`, restores saved follower positions,
+then clears the battle context. Do not clear it before destination restoration.
 
 ### Plugin Parameters
 
@@ -339,7 +351,9 @@ Map battle trigger
 -> resolve top-view battle
 -> play timeline in the default message window
 -> apply final hero HP
--> stop at result phase on Map002
+-> reserve return transfer
+-> restore player/follower formation on the origin map
+-> clear the active battle context
 ```
 
 The flow above is implemented. The following continuation is planned but not
@@ -378,12 +392,16 @@ Post-battle actions are expected to include:
 - MapBattle saves the complete input/result/playback state and does not reroll after scene recreation or load.
 - Timeline entries display in batches of up to four lines through MV's default message window.
 - Final hero HP is applied once and guarded by `outcomeApplied`.
+- Player position/direction and visible follower positions/directions are captured before battle transfer.
+- Origin transfer keeps the battle context until destination-map formation restoration completes.
+- A defeat with `canLose: true` revives dead battle members to 1 HP before return, matching MV's default can-lose behavior.
+- A defeat with `canLose: false` restores the origin formation, then MV's normal game-over check proceeds after the return context is cleared.
 
 ### Partial
 
 - Battle presentation works as manual message pages, but has no HUD, animation, timed autoplay, speed controls, or instant completion.
-- Victory/defeat/timeout are calculated, but all outcomes currently stop at `phase: "result"` on Map002.
-- `canEscape` and `canLose` are stored but do not yet drive escape or defeat behavior.
+- Victory/defeat/timeout are calculated and return transfer is connected, but no result review screen or custom outcome branch exists.
+- `canLose` now controls defeat revival before return; `canEscape` still has no custom escape behavior.
 - MV Battle Processing branches are not integrated with the custom result; `command301` currently assigns its branch value at encounter start.
 - Enemy HP/ATK come from MV Enemy params and are editable, but broader progression/boss scaling is not defined in code.
 - Combat stats are returned, but no persistent notebook/history UI records them.
@@ -394,7 +412,7 @@ Post-battle actions are expected to include:
 ### Not Started
 
 - Fog-picked card reveal screen.
-- Post-battle result review and return-to-origin flow.
+- Post-battle result review flow.
 - Reward offer, rarity rolls, pity, and reward acquisition UI.
 - Companion roster/deployment, promised buffs, betrayal behavior, and purification.
 - Accusation/skip accusation and deduction notebook workflow.
@@ -816,7 +834,7 @@ if (curses >= 3) ids = ids.filter(i => i !== "brand");
 
 ### 11. Battle Viewing UX And Result Branching
 
-**Status: Partial.** Basic message-window playback and final HP application work. Custom viewing controls and all post-battle branches are missing.
+**Status: Partial.** Basic message-window playback, final HP application, and origin formation restoration work. Custom viewing controls and post-battle review/reward branches are missing.
 
 The MV implementation currently presents the structured timeline through the
 default message window. Custom HUD, automatic timed playback, speed controls,
@@ -862,11 +880,10 @@ Village/run progression from prototype:
 
 Work in this order unless the user explicitly redirects the prototype:
 
-1. Define `result`-phase behavior for victory, defeat, and timeout, including how `canLose` and Event Battle Processing branches should behave.
-2. Add a temporary result review and return-to-origin path so one encounter completes end to end.
-3. Persist a notebook entry from `combat.result.stats` before clearing the battle context.
-4. Add the three-card reward offer, pity state, and reward acquisition after normal victory.
-5. Add the fog-picked-card reveal between deck confirmation and timeline playback.
-6. Replace manual message paging with a minimal Map002 battle HUD and timed playback; add speed and instant-complete controls afterward.
-7. Add companion promise/buff inputs to the resolver, then betrayal evidence and accusation/purification phases.
-8. Add mythos events, card upgrade/removal workflows, curse acquisition controls, and village/run progression.
+1. Integrate victory/defeat/escape with MV Event Battle Processing branches and define a result review point before or after return.
+2. Persist a notebook entry from `combat.result.stats` before the return restoration clears the battle context.
+3. Add the three-card reward offer, pity state, and reward acquisition after normal victory.
+4. Add the fog-picked-card reveal between deck confirmation and timeline playback.
+5. Replace manual message paging with a minimal Map002 battle HUD and timed playback; add speed and instant-complete controls afterward.
+6. Add companion promise/buff inputs to the resolver, then betrayal evidence and accusation/purification phases.
+7. Add mythos events, card upgrade/removal workflows, curse acquisition controls, and village/run progression.
