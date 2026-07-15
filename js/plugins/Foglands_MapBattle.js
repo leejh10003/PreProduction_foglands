@@ -32,8 +32,14 @@
  *   from enemy note tags:
  *     <FogChar:Monster>
  *     <FogCharIndex:0>
+ * - The battle flow is split into explicit "selection" and "combat" phases.
+ * - Confirming card selection stores player picks, fog picks, and the final
+ *   battle deck on the saved battle context.
+ * - The combat phase calls FoglandsCombat.resolve() once and stores its
+ *   serializable result on the battle context.
+ * - Timeline events are shown through RPG Maker MV's default message window.
  *
- * This plugin does not run the custom battle simulation yet.
+ * Visual battle animations and post-battle accusation are not implemented yet.
  */
 
 (function() {
@@ -68,14 +74,348 @@
             canEscape: !!canEscape,
             canLose: !!canLose,
             source: source || 'event',
-            returnState: returnState
+            returnState: returnState,
+            phase: 'transfer',
+            playerPicks: [],
+            fogPicks: [],
+            battleDeck: [],
+            mods: {}
         };
         $gamePlayer.makeEncounterCount();
         $gamePlayer.reserveTransfer(battleMapId, battleX, battleY, 2, 0);
     };
 
     FoglandsMapBattle.current = function() {
-        return $gameSystem._foglandsMapBattle || null;
+        var state = $gameSystem._foglandsMapBattle || null;
+        if (state && state.active) {
+            if (!state.phase) state.phase = 'transfer';
+            if (!state.playerPicks) state.playerPicks = [];
+            if (!state.fogPicks) state.fogPicks = [];
+            if (!state.battleDeck) state.battleDeck = [];
+            if (!state.mods) state.mods = {};
+        }
+        return state;
+    };
+
+    FoglandsMapBattle.requiredPlayerPicks = function() {
+        var state = FoglandsMapBattle.current();
+        return state && state.mods && state.mods.foghand ? 6 : 7;
+    };
+
+    FoglandsMapBattle.requiredFogPicks = function() {
+        return 10 - FoglandsMapBattle.requiredPlayerPicks();
+    };
+
+    FoglandsMapBattle.shuffle = function(items) {
+        var result = items.slice();
+        for (var i = result.length - 1; i > 0; i--) {
+            var j = Math.floor(Math.random() * (i + 1));
+            var value = result[i];
+            result[i] = result[j];
+            result[j] = value;
+        }
+        return result;
+    };
+
+    FoglandsMapBattle.confirmCardSelection = function() {
+        var state = FoglandsMapBattle.current();
+        if (!state || state.phase !== 'selection' || !window.FoglandsCards) return false;
+
+        var required = FoglandsMapBattle.requiredPlayerPicks();
+        var playerPicks = FoglandsCards.selectedCardUids();
+        if (playerPicks.length !== required) return false;
+
+        var collection = FoglandsCards.collection();
+        var selected = {};
+        playerPicks.forEach(function(uid) {
+            selected[uid] = true;
+        });
+
+        var validPlayerPicks = collection.filter(function(instance) {
+            return selected[instance.uid] && FoglandsCards.canPlayerSelect(instance);
+        }).map(function(instance) {
+            return instance.uid;
+        });
+        if (validPlayerPicks.length !== required) return false;
+
+        var fogPicks = FoglandsMapBattle.shuffle(collection.filter(function(instance) {
+            return !selected[instance.uid];
+        })).slice(0, FoglandsMapBattle.requiredFogPicks()).map(function(instance) {
+            return instance.uid;
+        });
+        if (fogPicks.length !== FoglandsMapBattle.requiredFogPicks()) return false;
+
+        var battleUids = {};
+        validPlayerPicks.concat(fogPicks).forEach(function(uid) {
+            battleUids[uid] = true;
+        });
+
+        state.playerPicks = validPlayerPicks;
+        state.fogPicks = fogPicks;
+        state.battleDeck = collection.filter(function(instance) {
+            return battleUids[instance.uid];
+        }).map(function(instance) {
+            return instance.uid;
+        });
+
+        return FoglandsMapBattle.runPhase('combat');
+    };
+
+    FoglandsMapBattle.makeCombatInput = function() {
+        var state = FoglandsMapBattle.current();
+        if (!state || !window.FoglandsCards) return null;
+
+        var collectionByUid = {};
+        FoglandsCards.collection().forEach(function(instance) {
+            collectionByUid[instance.uid] = instance;
+        });
+
+        var deck = state.battleDeck.map(function(uid) {
+            var instance = collectionByUid[uid];
+            var card = instance && FoglandsCards.cardData(instance);
+            if (!instance || !card) return null;
+            return {
+                uid: instance.uid,
+                cardId: instance.cardId,
+                upgraded: !!instance.upgraded,
+                name: card.name,
+                category: card.category,
+                tier: card.tier,
+                successRate: card.successRate,
+                effects: card.effects
+            };
+        }).filter(function(card) {
+            return !!card;
+        });
+
+        var troop = $dataTroops[state.troopId];
+        var enemies = troop ? troop.members.map(function(member, index) {
+            var enemy = $dataEnemies[member.enemyId];
+            if (!enemy || member.hidden) return null;
+            return {
+                instanceId: index + 1,
+                enemyId: enemy.id,
+                name: enemy.name,
+                hp: Number(enemy.params[0] || 1),
+                maxHp: Number(enemy.params[0] || 1),
+                attack: Number(enemy.params[2] || 0)
+            };
+        }).filter(function(enemy) {
+            return !!enemy;
+        }) : [];
+
+        var actor = $gameParty.leader();
+        if (!actor || deck.length !== 10 || !enemies.length) return null;
+
+        if (!state.combatSeed) {
+            state.combatSeed = (Date.now() ^ Math.floor(Math.random() * 4294967295)) >>> 0;
+            if (!state.combatSeed) state.combatSeed = 1;
+        }
+
+        return {
+            version: 1,
+            seed: state.combatSeed,
+            hero: {
+                actorId: actor.actorId(),
+                name: actor.name(),
+                hp: actor.hp,
+                maxHp: actor.mhp
+            },
+            enemies: enemies,
+            deck: deck,
+            mods: state.mods,
+            rules: {
+                maxTurns: 28,
+                baseDraw: 5,
+                cardsPerTurn: 3
+            }
+        };
+    };
+
+    FoglandsMapBattle.startCombat = function() {
+        var state = FoglandsMapBattle.current();
+        if (!state || !window.FoglandsCombat) return false;
+        if (state.combat && state.combat.result) return true;
+
+        var input = FoglandsMapBattle.makeCombatInput();
+        if (!input) return false;
+
+        state.combat = {
+            version: 1,
+            status: 'playing',
+            input: input,
+            result: FoglandsCombat.resolve(input),
+            playback: {
+                index: 0,
+                pending: false
+            },
+            outcomeApplied: false
+        };
+        return true;
+    };
+
+    FoglandsMapBattle.runPhase = function(phase) {
+        var state = FoglandsMapBattle.current();
+        if (!state || !state.active) return false;
+
+        if (phase === 'selection') {
+            state.phase = 'selection';
+            state.playerPicks = [];
+            state.fogPicks = [];
+            state.battleDeck = [];
+            state.combat = null;
+            state.combatSeed = null;
+            if (window.FoglandsCards) {
+                FoglandsCards.sanitizeSelection(FoglandsMapBattle.requiredPlayerPicks());
+            }
+            if (FoglandsMapBattle.isBattleMap() && window.Scene_FogCardList &&
+                    SceneManager._scene instanceof Scene_Map && !SceneManager.isSceneChanging()) {
+                SceneManager.push(Scene_FogCardList);
+            }
+            return true;
+        }
+
+        if (phase === 'combat') {
+            if (!state.battleDeck || state.battleDeck.length !== 10) return false;
+            if (!FoglandsMapBattle.startCombat()) return false;
+            state.phase = 'combat';
+            return true;
+        }
+
+        return false;
+    };
+
+    FoglandsMapBattle.resumePhase = function() {
+        var state = FoglandsMapBattle.current();
+        if (!state || !state.active || !FoglandsMapBattle.isBattleMap()) return;
+
+        if (state.phase === 'transfer') {
+            FoglandsMapBattle.runPhase('selection');
+        } else if (state.phase === 'selection' && window.Scene_FogCardList &&
+                SceneManager._scene instanceof Scene_Map && !SceneManager.isSceneChanging()) {
+            SceneManager.push(Scene_FogCardList);
+        } else if (state.phase === 'combat') {
+            FoglandsMapBattle.startCombat();
+        }
+    };
+
+    FoglandsMapBattle.formatTimelineEvent = function(event) {
+        var cardName = event.card ? event.card.name + (event.card.upgraded ? '+' : '') : '';
+        var targetName = event.target ? event.target.name : '';
+        var heroState = event.state && event.state.hero;
+        var targetState = event.state && event.state.enemies.filter(function(enemy) {
+            return event.target && enemy.instanceId === event.target.instanceId;
+        })[0];
+
+        if (event.type === 'battleStart') {
+            return '전투 시작: ' + event.enemies.map(function(enemy) {
+                return enemy.name + ' HP ' + enemy.hp + ' / 공격 ' + enemy.attack;
+            }).join(', ');
+        }
+        if (event.type === 'turnStart') {
+            return event.turn + '턴 시작 - ' + event.drawCount + '장 드로우';
+        }
+        if (event.type === 'draw') {
+            return '드로우: ' + event.cards.map(function(card) { return card.name; }).join(', ');
+        }
+        if (event.type === 'reshuffle') return '버림 더미를 다시 섞습니다. (' + event.count + '회)';
+        if (event.type === 'cardSealed') return '[' + cardName + '] 봉인되어 불발했습니다.';
+        if (event.type === 'curseFizzle') return '[' + cardName + '] 안개 속에서 불발했습니다.';
+        if (event.type === 'cardMiss') {
+            return '[' + cardName + '] 빗나감 - 확률 ' + event.probability.effective +
+                '%, 판정 ' + event.probability.roll;
+        }
+        if (event.type === 'damage') {
+            return '[' + cardName + '] ' + targetName + '에게 피해 ' + event.amount +
+                (targetState ? ' (HP ' + targetState.hp + '/' + targetState.maxHp + ')' : '');
+        }
+        if (event.type === 'selfDamage') {
+            return '[' + cardName + '] 자신에게 피해 ' + event.amount +
+                (heroState ? ' (HP ' + heroState.hp + '/' + heroState.maxHp + ')' : '');
+        }
+        if (event.type === 'heal') {
+            return '[' + cardName + '] 체력 회복 ' + event.amount +
+                (heroState ? ' (HP ' + heroState.hp + '/' + heroState.maxHp + ')' : '');
+        }
+        if (event.type === 'block') return '[' + cardName + '] 방어막 +' + event.amount;
+        if (event.type === 'blockRetain') return '[' + cardName + '] 유지 방어막 +' + event.amount;
+        if (event.type === 'blockPermanent') {
+            return '[' + cardName + '] 영구 방어막 ' + event.total + '/' + event.cap;
+        }
+        if (event.type === 'poisonApplied') {
+            return '[' + cardName + '] ' + targetName + ' 중독 +' + event.amount + ' (누적 ' + event.total + ')';
+        }
+        if (event.type === 'poisonDoubled') {
+            return '[' + cardName + '] ' + targetName + ' 중독 ' + event.before + ' -> ' + event.total;
+        }
+        if (event.type === 'drawNext') return '[' + cardName + '] 다음 턴 드로우 +' + event.amount;
+        if (event.type === 'probabilityNext') return '[' + cardName + '] 다음 턴 성공률 +' + event.amount + '%p';
+        if (event.type === 'poisonTick') {
+            return targetName + ' 중독 피해 ' + event.amount +
+                (targetState ? ' (HP ' + targetState.hp + '/' + targetState.maxHp + ')' : '');
+        }
+        if (event.type === 'enemyAttack') {
+            return event.source.name + '의 공격 ' + event.attack + ' - 피해 ' + event.damage +
+                ', 방어막 ' + event.block +
+                (heroState ? ' (HP ' + heroState.hp + '/' + heroState.maxHp + ')' : '');
+        }
+        if (event.type === 'thornDamage') {
+            return targetName + '에게 가시 반사 피해 ' + event.amount +
+                (targetState ? ' (HP ' + targetState.hp + '/' + targetState.maxHp + ')' : '');
+        }
+        if (event.type === 'timeout') return event.maxTurns + '턴 초과 - 안개가 전장을 삼켰습니다.';
+        if (event.type === 'battleEnd') {
+            if (event.result === 'victory') return '전투 승리!';
+            if (event.result === 'timeout') return '전투 패배: 제한 턴을 초과했습니다.';
+            return '전투 패배.';
+        }
+        return null;
+    };
+
+    FoglandsMapBattle.applyCombatOutcome = function() {
+        var state = FoglandsMapBattle.current();
+        var combat = state && state.combat;
+        if (!combat || combat.outcomeApplied || !combat.result) return;
+
+        var actor = $gameParty.leader();
+        if (actor && combat.result.finalState && combat.result.finalState.hero) {
+            actor.setHp(combat.result.finalState.hero.hp);
+        }
+        combat.outcomeApplied = true;
+        combat.status = 'finished';
+        state.phase = 'result';
+    };
+
+    FoglandsMapBattle.updateCombatTimeline = function() {
+        var state = FoglandsMapBattle.current();
+        var combat = state && state.phase === 'combat' && state.combat;
+        if (!combat || combat.status !== 'playing' || !combat.result) return;
+
+        var playback = combat.playback || (combat.playback = { index: 0, pending: false });
+        var timeline = combat.result.timeline || [];
+
+        if (playback.pending) {
+            if ($gameMessage.isBusy()) return;
+            playback.index++;
+            playback.pending = false;
+        }
+
+        while (playback.index < timeline.length && !$gameMessage.isBusy()) {
+            var text = FoglandsMapBattle.formatTimelineEvent(timeline[playback.index]);
+            if (!text) {
+                playback.index++;
+                continue;
+            }
+            $gameMessage.setBackground(0);
+            $gameMessage.setPositionType(2);
+            $gameMessage.add(text);
+            playback.pending = true;
+            return;
+        }
+
+        if (playback.index >= timeline.length && !$gameMessage.isBusy()) {
+            FoglandsMapBattle.applyCombatOutcome();
+        }
     };
 
     FoglandsMapBattle.clear = function() {
@@ -186,5 +526,14 @@
     Scene_Map.prototype.start = function() {
         _Scene_Map_start.call(this);
         FoglandsMapBattle.setupEnemySlots();
+        FoglandsMapBattle.resumePhase();
+    };
+
+    var _Scene_Map_update = Scene_Map.prototype.update;
+    Scene_Map.prototype.update = function() {
+        _Scene_Map_update.call(this);
+        if (FoglandsMapBattle.isBattleMap()) {
+            FoglandsMapBattle.updateCombatTimeline();
+        }
     };
 })();

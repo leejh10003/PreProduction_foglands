@@ -16,6 +16,8 @@
  * - Creates a starter runtime card collection from the prototype.
  * - Provides a card list interface using MV windows.
  * - Supports simple global multi-selection.
+ * - During a Foglands map battle, requires a complete player selection and
+ *   confirms it into the map battle context before combat begins.
  *
  * @param Max Selection
  * @type number
@@ -165,7 +167,23 @@
         return FoglandsCards.selection().indexOf(uid) >= 0;
     };
 
-    FoglandsCards.toggleSelection = function(uid) {
+    FoglandsCards.canPlayerSelect = function(instance) {
+        var card = FoglandsCards.cardData(instance);
+        return !!card && card.category !== 'curse' && card.tier !== 'curse';
+    };
+
+    FoglandsCards.sanitizeSelection = function(limit) {
+        var valid = {};
+        FoglandsCards.collection().forEach(function(instance) {
+            if (FoglandsCards.canPlayerSelect(instance)) valid[instance.uid] = true;
+        });
+        $gameSystem._fogSelectedCardUids = FoglandsCards.selection().filter(function(uid) {
+            return valid[uid];
+        }).slice(0, limit || maxSelection);
+        return $gameSystem._fogSelectedCardUids;
+    };
+
+    FoglandsCards.toggleSelection = function(uid, limit) {
         var selected = FoglandsCards.selection();
         var index = selected.indexOf(uid);
 
@@ -174,8 +192,13 @@
             return false;
         }
 
+        var instance = FoglandsCards.collection().filter(function(item) {
+            return item.uid === uid;
+        })[0];
+        if (!FoglandsCards.canPlayerSelect(instance)) return null;
+
         selected.push(uid);
-        while (selected.length > maxSelection) {
+        while (selected.length > (limit || maxSelection)) {
             selected.shift();
         }
         return true;
@@ -233,6 +256,12 @@
 
     Window_FogCardList.prototype.item = function() {
         return this._data && this.index() >= 0 ? this._data[this.index()] : null;
+    };
+
+    Window_FogCardList.prototype.isCurrentItemEnabled = function() {
+        var instance = this.item();
+        return !!instance && (FoglandsCards.isSelected(instance.uid) ||
+            FoglandsCards.canPlayerSelect(instance));
     };
 
     Window_FogCardList.prototype.makeItemList = function() {
@@ -306,6 +335,36 @@
         }
     };
 
+    function Window_FogCardConfirm() {
+        this.initialize.apply(this, arguments);
+    }
+
+    Window_FogCardConfirm.prototype = Object.create(Window_HorzCommand.prototype);
+    Window_FogCardConfirm.prototype.constructor = Window_FogCardConfirm;
+
+    Window_FogCardConfirm.prototype.initialize = function(y) {
+        Window_HorzCommand.prototype.initialize.call(this, 0, y);
+    };
+
+    Window_FogCardConfirm.prototype.windowWidth = function() {
+        return Graphics.boxWidth;
+    };
+
+    Window_FogCardConfirm.prototype.maxCols = function() {
+        return 2;
+    };
+
+    Window_FogCardConfirm.prototype.makeCommandList = function() {
+        var required = FoglandsMapBattle.requiredPlayerPicks();
+        var selected = FoglandsCards.selectedCardUids().length;
+        this.addCommand('덱 확정 (' + selected + '/' + required + ')', 'confirm', selected === required);
+        this.addCommand('카드 선택', 'back');
+    };
+
+    Window_FogCardConfirm.prototype.refreshSelection = function() {
+        this.refresh();
+    };
+
     function Scene_FogCardList() {
         this.initialize.apply(this, arguments);
     }
@@ -319,33 +378,79 @@
 
     Scene_FogCardList.prototype.create = function() {
         Scene_MenuBase.prototype.create.call(this);
+        this._battleSelection = !!(window.FoglandsMapBattle && FoglandsMapBattle.current() &&
+            FoglandsMapBattle.current().active && FoglandsMapBattle.current().phase === 'selection');
         this.createHelpWindow();
+        if (this._battleSelection) this.createConfirmWindow();
         this.createCardWindow();
+    };
+
+    Scene_FogCardList.prototype.createConfirmWindow = function() {
+        var y = Graphics.boxHeight - this._helpWindow.fittingHeight(1);
+        this._confirmWindow = new Window_FogCardConfirm(y);
+        this._confirmWindow.setHandler('confirm', this.onDeckConfirm.bind(this));
+        this._confirmWindow.setHandler('back', this.onConfirmBack.bind(this));
+        this._confirmWindow.setHandler('cancel', this.onConfirmBack.bind(this));
+        this._confirmWindow.deactivate();
+        this._confirmWindow.deselect();
+        this.addWindow(this._confirmWindow);
     };
 
     Scene_FogCardList.prototype.createCardWindow = function() {
         var y = this._helpWindow.height;
-        var height = Graphics.boxHeight - y;
+        var bottom = this._battleSelection ? this._confirmWindow.y : Graphics.boxHeight;
+        var height = bottom - y;
         this._cardWindow = new Window_FogCardList(0, y, Graphics.boxWidth, height);
         this._cardWindow.setHelpWindow(this._helpWindow);
         this._cardWindow.setHandler('ok', this.onCardOk.bind(this));
-        this._cardWindow.setHandler('cancel', this.popScene.bind(this));
+        this._cardWindow.setHandler('cancel', this.onCardListCancel.bind(this));
         this.addWindow(this._cardWindow);
     };
 
     Scene_FogCardList.prototype.onCardOk = function() {
         var instance = this._cardWindow.item();
         if (instance) {
-            FoglandsCards.toggleSelection(instance.uid);
+            var limit = this._battleSelection ? FoglandsMapBattle.requiredPlayerPicks() : FoglandsCards.maxSelection();
+            var result = FoglandsCards.toggleSelection(instance.uid, limit);
+            if (result === null) SoundManager.playBuzzer();
             this._cardWindow.refresh();
             this._cardWindow.select(this._cardWindow.index());
             this._cardWindow.callUpdateHelp();
+            if (this._confirmWindow) this._confirmWindow.refreshSelection();
         }
         this._cardWindow.activate();
     };
 
+    Scene_FogCardList.prototype.onCardListCancel = function() {
+        if (!this._battleSelection) {
+            this.popScene();
+            return;
+        }
+        this._cardWindow.deactivate();
+        this._confirmWindow.refreshSelection();
+        this._confirmWindow.select(0);
+        this._confirmWindow.activate();
+    };
+
+    Scene_FogCardList.prototype.onConfirmBack = function() {
+        this._confirmWindow.deactivate();
+        this._confirmWindow.deselect();
+        this._cardWindow.activate();
+    };
+
+    Scene_FogCardList.prototype.onDeckConfirm = function() {
+        if (FoglandsMapBattle.confirmCardSelection()) {
+            this.popScene();
+        } else {
+            SoundManager.playBuzzer();
+            this._confirmWindow.refreshSelection();
+            this._confirmWindow.activate();
+        }
+    };
+
     window.Scene_FogCardList = Scene_FogCardList;
     window.Window_FogCardList = Window_FogCardList;
+    window.Window_FogCardConfirm = Window_FogCardConfirm;
 
     var _Game_Interpreter_pluginCommand = Game_Interpreter.prototype.pluginCommand;
     Game_Interpreter.prototype.pluginCommand = function(command, args) {
