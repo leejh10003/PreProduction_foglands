@@ -32,6 +32,10 @@ Current behavior:
 - Stores battle context in `$gameSystem._foglandsMapBattle`.
 - Transfers the player to the configured battle map.
 - On battle map start, assigns enemy sprites to tagged map events.
+- Opens battle card selection, confirms player/fog picks, and creates the final 10-card deck.
+- Calls the pure combat resolver once and stores its complete result in save-backed state.
+- Plays structured timeline events through MV's default message window.
+- Applies the final hero HP once, then stops at `phase: "result"` on Map002.
 
 Current battle context shape:
 
@@ -42,11 +46,13 @@ $gameSystem._foglandsMapBattle = {
     canEscape: Boolean,
     canLose: Boolean,
     source: "event" | "encounter",
-    phase: "transfer" | "selection" | "combat",
+    phase: "transfer" | "selection" | "combat" | "result",
     playerPicks: [cardUid],
     fogPicks: [cardUid],
     battleDeck: [cardUid],
     mods: {},
+    combatSeed: Number,
+    combat: Object | null,
     returnState: {
         mapId: Number,
         x: Number,
@@ -111,9 +117,9 @@ Current rules:
 - Does not retain combat state between calls.
 
 The current input builder uses the party leader's current HP/max HP and MV
-Enemy database `params[0]` (HP) / `params[2]` (ATK). This is an initial bridge,
-not a final balance decision; prototype scaling versus MV parameters still
-needs playtest judgment.
+Enemy database `params[0]` (HP) / `params[2]` (ATK). Database values are the
+active balance source; the prototype scaling formulas are reference material,
+not active combat code.
 
 The helper `FoglandsMapBattle.returnToOrigin()` transfers back to the stored origin and clears this state.
 
@@ -276,10 +282,11 @@ Current responsibilities:
 - Clear selection with plugin command `FogCards clear`.
 - Reset the starter runtime collection with plugin command `FogCards reset`.
 
-Future responsibilities:
+Remaining card-system responsibilities:
 
-- Create runtime card instances.
-- Provide helpers for starter deck, reward pools, upgrades, removals, and effect interpretation.
+- Add acquired reward cards as new runtime instances.
+- Provide collection mutation helpers for upgrades and permanent removal.
+- Provide reusable reward-pool and collection-query helpers where they belong to card ownership rather than combat resolution.
 
 ## plugins.js
 
@@ -294,7 +301,10 @@ Current relevant plugin order:
 5. `Foglands_MapBattle`
 6. `Community_Basic`
 
-If `Foglands_MapBattle` appears not to load, check this file first and confirm the plugin is also enabled in MV's Plugin Manager.
+If combat confirmation only plays the buzzer, check this file first. A missing
+or disabled `Foglands_Combat` causes `FoglandsMapBattle.startCombat()` to return
+`false`. Because MV regenerates `plugins.js`, register and enable the plugin in
+MV's Plugin Manager rather than relying only on a manual edit.
 
 ## Implementation Rules
 
@@ -327,9 +337,20 @@ Map battle trigger
 -> populate enemy slot events from troop members
 -> choose cards / deck / hand
 -> resolve top-view battle
--> inspect results
+-> play timeline in the default message window
+-> apply final hero HP
+-> stop at result phase on Map002
+```
+
+The flow above is implemented. The following continuation is planned but not
+implemented:
+
+```text
+result review
 -> accuse or skip accusation
--> rewards / penalties / return
+-> purify / apply mythos event
+-> reward or penalty
+-> return to origin / advance village
 ```
 
 Post-battle actions are expected to include:
@@ -340,11 +361,55 @@ Post-battle actions are expected to include:
 - On success, purify the betrayer so their buff works normally later.
 - Receive card/reward progression where appropriate.
 
-## Combat TODOs From Prototype
+## Current Implementation Status
 
-The original HTML prototype already implements several combat rules that are not yet implemented in this MV project and were not fully captured in the earlier TODO list. Use this section as the working combat backlog. The code below is intentionally close to the prototype logic.
+### Implemented
+
+- Default MV battle calls route to Map002 instead of `Scene_Battle`.
+- Troop members populate pre-tagged enemy slot events using Enemy note tags.
+- Card definitions load from `data/FogCards.json` and starter copies exist as save-backed runtime instances.
+- Player card selection persists in `$gameSystem`; battle confirmation supports 7/3 and `foghand` 6/4 selection.
+- Curse cards are excluded from player picks but remain eligible for fog picks.
+- A confirmed 10-card deck is snapshotted into the battle context.
+- `FoglandsCombat.resolve(input)` synchronously resolves the automatic battle with seeded randomness.
+- Draw/use/discard/reshuffle, probability rolls, the 28-turn limit, enemy attacks, and all current card effect codes are calculated.
+- Multi-enemy Troops use first-living-enemy card targeting and Troop-order enemy attacks.
+- The resolver returns serializable `outcome`, `finalState`, `stats`, and `timeline` data without mutating its input.
+- MapBattle saves the complete input/result/playback state and does not reroll after scene recreation or load.
+- Timeline entries display in batches of up to four lines through MV's default message window.
+- Final hero HP is applied once and guarded by `outcomeApplied`.
+
+### Partial
+
+- Battle presentation works as manual message pages, but has no HUD, animation, timed autoplay, speed controls, or instant completion.
+- Victory/defeat/timeout are calculated, but all outcomes currently stop at `phase: "result"` on Map002.
+- `canEscape` and `canLose` are stored but do not yet drive escape or defeat behavior.
+- MV Battle Processing branches are not integrated with the custom result; `command301` currently assigns its branch value at encounter start.
+- Enemy HP/ATK come from MV Enemy params and are editable, but broader progression/boss scaling is not defined in code.
+- Combat stats are returned, but no persistent notebook/history UI records them.
+- Upgrade calculations work when a runtime instance already has `upgraded: true`, but no forge/upgrade workflow sets it yet.
+- `seal`, `blurName`, `foghand`, `sleep`, and `morning` are consumed by battle code, but no mythos/event system currently produces and clears them.
+- Curse selection and combat fizzle work, but curse acquisition, purge, and three-curse brand filtering do not.
+
+### Not Started
+
+- Fog-picked card reveal screen.
+- Post-battle result review and return-to-origin flow.
+- Reward offer, rarity rolls, pity, and reward acquisition UI.
+- Companion roster/deployment, promised buffs, betrayal behavior, and purification.
+- Accusation/skip accusation and deduction notebook workflow.
+- Positive/negative mythos event selection and application.
+- Village/boss/run progression and run-clear/death screens.
+
+## Prototype Feature Status
+
+The original HTML prototype defines the following features. Each item is marked
+with its current MV implementation status. The code below remains as behavioral
+reference, not as an assertion that the feature is still wholly unimplemented.
 
 ### 1. Starter Deck Recipe
+
+**Status: Implemented.** Static definitions and the 10 runtime starter instances are both present.
 
 `data/FogCards.json` has static card definitions. `Foglands_Cards.js` now creates the prototype starting collection as runtime instances.
 
@@ -365,7 +430,8 @@ const starterDeck = () => [
 ];
 ```
 
-MV direction: create multiple runtime instances pointing to the relevant `FogCards.json` `cardId`s. Do not duplicate static card definitions.
+Implemented direction: multiple runtime instances point to the relevant
+`FogCards.json` `cardId`s. Do not duplicate static card definitions.
 
 Current runtime shape:
 
@@ -382,6 +448,8 @@ $gameSystem._fogSelectedCardUids
 ```
 
 ### 2. Battle Card Selection Rules
+
+**Status: Partial.** Selection, confirmation, fog randomization, and persistence work. The separate fog-reveal presentation is missing.
 
 Before battle resolution, the player chooses part of the battle deck and the fog chooses the rest.
 
@@ -402,7 +470,7 @@ Current MV implementation:
 - Confirmation requires the exact player pick count and rejects curse cards.
 - The remaining 3 cards (4 with `foghand`) are randomly selected for the fog.
 - Confirmed UID arrays are stored as `playerPicks`, `fogPicks`, and `battleDeck` on the battle context.
-- The explicit fog-reveal presentation and actual combat resolver are still pending.
+- The explicit fog-reveal presentation is still pending; the combat resolver is implemented.
 
 Prototype logic:
 
@@ -423,6 +491,8 @@ const deck = g.collection.filter(c =>
 ```
 
 ### 3. Reward Offer And Pity Rules
+
+**Status: Not Started.** No reward offer, pity state, or reward acquisition flow exists in MV yet.
 
 After a non-boss victory, the prototype offers 3 cards and forces the player to take 1.
 
@@ -460,6 +530,8 @@ function rewardOffer(pity) {
 ```
 
 ### 4. Core Auto-Battle Turn Structure
+
+**Status: Implemented.** The resolver covers the base automatic turn loop and returns a deterministic timeline.
 
 The first MV implementation now resolves the automatic battle and is capped at
 28 turns. It returns structured timeline events; MapBattle currently formats
@@ -516,6 +588,8 @@ for (let turn = 1; turn <= 28; turn++) {
 
 ### 5. Enemy Stat Scaling Decision
 
+**Status: Implemented for the current prototype bridge.** Combat reads HP and ATK from MV Enemy params; database tuning is the current balancing mechanism.
+
 The prototype does not use MV enemy params directly. It generates enemy stats from village/battle/boss state.
 
 Prototype logic:
@@ -540,12 +614,13 @@ const makeEnemy = (v, b, boss) => boss
   : { name: FOES[v][b - 1], hp: 20 + v * 12 + b * 5, maxHp: 20 + v * 12 + b * 5, atk: 5 + v + b, boss: false };
 ```
 
-The initial implementation uses MV `Enemy.params` for HP and ATK so authored
-Troop/Enemy data can run immediately. Final balancing still needs a decision:
-retain MV params, use prototype scaling, or use a hybrid where Troop/Enemy
-identify the enemy and Foglands runtime derives combat stats.
+The implementation uses MV `Enemy.params` for HP and ATK so authored Troop and
+Enemy data control current balance. Prototype formulas remain a reference if a
+later progression layer needs derived scaling.
 
 ### 6. Battle Runtime State
+
+**Status: Implemented.** The complete resolved result and message playback cursor are stored under the save-backed map-battle context.
 
 The combat resolver now returns its own result object. MapBattle stores it under
 `$gameSystem._foglandsMapBattle.combat`; it remains separate from `$gameTroop`
@@ -579,6 +654,8 @@ Supported battle mods from prototype:
 - `morning`
 
 ### 7. Combat Log And Notebook Stats
+
+**Status: Partial.** Timeline and base combat stats are returned and saved; notebook entries, history, and deduction UI are missing.
 
 The prototype stores combat events and statistical evidence for deduction. This is central to the game loop.
 
@@ -619,7 +696,13 @@ const entry = {
 };
 ```
 
+Current caveat: companion-dependent fields such as `startShield`,
+`reshShield`, `gambN`, `poisN`, and `alch` remain zero/null until companion
+effects are implemented.
+
 ### 8. Negative And Positive Mythos Events
+
+**Status: Not Started as a game phase.** Combat can consume relevant modifier fields, but there is no event selection, application, duration, or cleanup workflow.
 
 The prototype has combat-affecting events after accusation/mythos phases.
 
@@ -661,6 +744,8 @@ else if (id === "brand") p.collection = [...g.collection, mkCurse()];
 
 ### 9. Card Upgrade Rules
 
+**Status: Partial.** `Foglands_Combat` applies the prototype upgrade formula when an input card instance has `upgraded: true`; no upgrade acquisition or selection UI exists.
+
 Prototype upgrade behavior:
 
 - If card is not already 100%, increase probability by 15 up to 100.
@@ -692,9 +777,13 @@ function upgradeCard(c) {
 }
 ```
 
-MV direction: adapt this to the `effects` array in `FogCards.json`; define which effect is the primary upgrade target.
+The formula is adapted to the `effects` array in `FogCards.json`. The remaining
+work is the persistent forge/upgrade operation that changes a selected runtime
+card instance.
 
 ### 10. Curse Card Rules
+
+**Status: Partial.** Player exclusion, fog eligibility, combat fizzle, and fizzle stats work. Acquisition, purge, and brand-pool filtering are missing.
 
 The prototype has one curse card: `안개 조각`.
 
@@ -726,6 +815,8 @@ if (curses >= 3) ids = ids.filter(i => i !== "brand");
 ```
 
 ### 11. Battle Viewing UX And Result Branching
+
+**Status: Partial.** Basic message-window playback and final HP application work. Custom viewing controls and all post-battle branches are missing.
 
 The MV implementation currently presents the structured timeline through the
 default message window. Custom HUD, automatic timed playback, speed controls,
@@ -769,8 +860,13 @@ Village/run progression from prototype:
 
 ## Suggested Next Steps
 
-- Add a minimal battle HUD on `Map002`.
-- Add a fog-pick reveal view between deck confirmation and combat resolution.
-- Add a temporary "return from battle" command or event that calls `FoglandsMapBattle.returnToOrigin()`.
-- Store the instantiated battle enemies in a custom runtime state separate from `$gameTroop`.
-- Later, add hero actions and resolve victory/defeat before returning to the origin map.
+Work in this order unless the user explicitly redirects the prototype:
+
+1. Define `result`-phase behavior for victory, defeat, and timeout, including how `canLose` and Event Battle Processing branches should behave.
+2. Add a temporary result review and return-to-origin path so one encounter completes end to end.
+3. Persist a notebook entry from `combat.result.stats` before clearing the battle context.
+4. Add the three-card reward offer, pity state, and reward acquisition after normal victory.
+5. Add the fog-picked-card reveal between deck confirmation and timeline playback.
+6. Replace manual message paging with a minimal Map002 battle HUD and timed playback; add speed and instant-complete controls afterward.
+7. Add companion promise/buff inputs to the resolver, then betrayal evidence and accusation/purification phases.
+8. Add mythos events, card upgrade/removal workflows, curse acquisition controls, and village/run progression.
