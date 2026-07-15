@@ -247,7 +247,8 @@
             result: FoglandsCombat.resolve(input),
             playback: {
                 index: 0,
-                pending: false
+                pending: false,
+                nextIndex: 0
             },
             outcomeApplied: false
         };
@@ -391,25 +392,36 @@
         var combat = state && state.phase === 'combat' && state.combat;
         if (!combat || combat.status !== 'playing' || !combat.result) return;
 
-        var playback = combat.playback || (combat.playback = { index: 0, pending: false });
+        var playback = combat.playback || (combat.playback = { index: 0, pending: false, nextIndex: 0 });
         var timeline = combat.result.timeline || [];
 
         if (playback.pending) {
             if ($gameMessage.isBusy()) return;
-            playback.index++;
+            playback.index = playback.nextIndex;
             playback.pending = false;
         }
 
-        while (playback.index < timeline.length && !$gameMessage.isBusy()) {
-            var text = FoglandsMapBattle.formatTimelineEvent(timeline[playback.index]);
-            if (!text) {
-                playback.index++;
-                continue;
+        if (playback.index < timeline.length && !$gameMessage.isBusy()) {
+            var cursor = playback.index;
+            var lines = [];
+            while (cursor < timeline.length && lines.length < 4) {
+                var text = FoglandsMapBattle.formatTimelineEvent(timeline[cursor]);
+                cursor++;
+                if (text) lines.push(text);
             }
+
+            if (!lines.length) {
+                playback.index = cursor;
+                return;
+            }
+
             $gameMessage.setBackground(0);
             $gameMessage.setPositionType(2);
-            $gameMessage.add(text);
+            lines.forEach(function(line) {
+                $gameMessage.add(line);
+            });
             playback.pending = true;
+            playback.nextIndex = cursor;
             return;
         }
 

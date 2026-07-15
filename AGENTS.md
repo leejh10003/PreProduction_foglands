@@ -12,6 +12,7 @@ Focus on these files for the current battle prototype:
 
 - `data/FogCards.json`
 - `js/plugins/Foglands_Cards.js`
+- `js/plugins/Foglands_Combat.js`
 - `js/plugins/Foglands_MapBattle.js`
 - `js/plugins/ScreenFilter.js`
 - `js/plugins.js`
@@ -41,6 +42,11 @@ $gameSystem._foglandsMapBattle = {
     canEscape: Boolean,
     canLose: Boolean,
     source: "event" | "encounter",
+    phase: "transfer" | "selection" | "combat",
+    playerPicks: [cardUid],
+    fogPicks: [cardUid],
+    battleDeck: [cardUid],
+    mods: {},
     returnState: {
         mapId: Number,
         x: Number,
@@ -49,6 +55,65 @@ $gameSystem._foglandsMapBattle = {
     }
 };
 ```
+
+`FoglandsMapBattle.runPhase(phase)` is the phase dispatcher. The initial map
+transfer resumes into `selection`; confirming a valid card selection snapshots
+the player picks, random fog picks, and final 10-card deck, then advances to
+`combat`. Entering combat calls `FoglandsCombat.resolve(input)` once, stores the
+returned result, and plays its timeline through MV's default message window.
+
+The saved combat state lives at:
+
+```js
+$gameSystem._foglandsMapBattle.combat = {
+    version: 1,
+    status: "playing" | "finished",
+    input: {},
+    result: {
+        outcome: {},
+        finalState: {},
+        stats: {},
+        timeline: []
+    },
+    playback: {
+        index: Number,
+        pending: Boolean,
+        nextIndex: Number
+    },
+    outcomeApplied: Boolean
+};
+```
+
+Do not store authoritative combat progress in plugin-local variables. The
+stored result prevents random rolls from changing after a scene recreation or
+save load, and `outcomeApplied` prevents HP/results from being applied twice.
+
+## Foglands_Combat.js
+
+`js/plugins/Foglands_Combat.js` is the engine-independent battle calculator.
+
+Public contract:
+
+```js
+FoglandsCombat.resolve(input) -> result
+```
+
+Current rules:
+
+- Synchronous full-battle resolution, up to 28 turns.
+- Draw 5, automatically use 3, discard the rest, and reshuffle as needed.
+- Seeded random card order and success rolls.
+- Supports all effect codes currently present in `FogCards.json`.
+- For multi-enemy Troops, cards target the first living enemy and every living
+  enemy attacks in Troop order.
+- Returns structured `outcome`, `finalState`, `stats`, and `timeline` data.
+- Does not access `$gameSystem`, `$gameMap`, scenes, windows, or sprites.
+- Does not retain combat state between calls.
+
+The current input builder uses the party leader's current HP/max HP and MV
+Enemy database `params[0]` (HP) / `params[2]` (ATK). This is an initial bridge,
+not a final balance decision; prototype scaling versus MV parameters still
+needs playtest judgment.
 
 The helper `FoglandsMapBattle.returnToOrigin()` transfers back to the stored origin and clears this state.
 
@@ -203,6 +268,10 @@ Current responsibilities:
 - Show selected rows with `(선택)` text.
 - Display each row as a card instance, including `#uid`, so duplicate cards are listed separately.
 - Enforce `Max Selection` with queue behavior: selecting beyond the cap removes the oldest selected card.
+- Reject curse cards from player selection.
+- When opened during map-battle `selection`, require 7 player cards (or 6 with `foghand`).
+- Provide a battle-only deck confirmation command.
+- Preserve the previous valid selection when the battle selection scene is recreated.
 - Open the card list with plugin command `FogCards open` or `FogCards list`.
 - Clear selection with plugin command `FogCards clear`.
 - Reset the starter runtime collection with plugin command `FogCards reset`.
@@ -221,8 +290,9 @@ Current relevant plugin order:
 1. `MadeWithMv`
 2. `ScreenFilter`
 3. `Foglands_Cards`
-4. `Foglands_MapBattle`
-5. `Community_Basic`
+4. `Foglands_Combat`
+5. `Foglands_MapBattle`
+6. `Community_Basic`
 
 If `Foglands_MapBattle` appears not to load, check this file first and confirm the plugin is also enabled in MV's Plugin Manager.
 
@@ -325,6 +395,15 @@ Prototype rules:
 - Previous selection can be reused when still valid.
 - Fog-picked cards are revealed before battle starts.
 
+Current MV implementation:
+
+- `FoglandsMapBattle.runPhase("selection")` opens the card selection scene after transfer to Map002.
+- Selection is stored in `$gameSystem._fogSelectedCardUids` and survives scene recreation/save-load.
+- Confirmation requires the exact player pick count and rejects curse cards.
+- The remaining 3 cards (4 with `foghand`) are randomly selected for the fog.
+- Confirmed UID arrays are stored as `playerPicks`, `fogPicks`, and `battleDeck` on the battle context.
+- The explicit fog-reveal presentation and actual combat resolver are still pending.
+
 Prototype logic:
 
 ```js
@@ -382,7 +461,9 @@ function rewardOffer(pity) {
 
 ### 4. Core Auto-Battle Turn Structure
 
-The prototype battle is automatic and capped at 28 turns.
+The first MV implementation now resolves the automatic battle and is capped at
+28 turns. It returns structured timeline events; MapBattle currently formats
+those events into batches of up to four lines in MV's default message window.
 
 Prototype rules:
 
@@ -459,11 +540,16 @@ const makeEnemy = (v, b, boss) => boss
   : { name: FOES[v][b - 1], hp: 20 + v * 12 + b * 5, maxHp: 20 + v * 12 + b * 5, atk: 5 + v + b, boss: false };
 ```
 
-MV direction still needs a decision: use MV `Enemy.params`, prototype scaling, or a hybrid where Troop/Enemy identify the enemy and Foglands runtime derives combat stats.
+The initial implementation uses MV `Enemy.params` for HP and ATK so authored
+Troop/Enemy data can run immediately. Final balancing still needs a decision:
+retain MV params, use prototype scaling, or use a hybrid where Troop/Enemy
+identify the enemy and Foglands runtime derives combat stats.
 
 ### 6. Battle Runtime State
 
-The combat resolver needs its own state object. This is separate from `$gameTroop` and separate from map event display slots.
+The combat resolver now returns its own result object. MapBattle stores it under
+`$gameSystem._foglandsMapBattle.combat`; it remains separate from `$gameTroop`
+and map event display slots.
 
 Prototype state values:
 
@@ -641,7 +727,9 @@ if (curses >= 3) ids = ids.filter(i => i !== "brand");
 
 ### 11. Battle Viewing UX And Result Branching
 
-The prototype presents combat as a watchable log with speed controls. This has not been specified for MV beyond "minimal battle HUD".
+The MV implementation currently presents the structured timeline through the
+default message window. Custom HUD, automatic timed playback, speed controls,
+and instant completion remain pending.
 
 Prototype UX:
 
@@ -682,7 +770,7 @@ Village/run progression from prototype:
 ## Suggested Next Steps
 
 - Add a minimal battle HUD on `Map002`.
-- Add a card-selection scene/window before battle resolution, using `data/FogCards.json`.
+- Add a fog-pick reveal view between deck confirmation and combat resolution.
 - Add a temporary "return from battle" command or event that calls `FoglandsMapBattle.returnToOrigin()`.
 - Store the instantiated battle enemies in a custom runtime state separate from `$gameTroop`.
 - Later, add hero actions and resolve victory/defeat before returning to the origin map.
