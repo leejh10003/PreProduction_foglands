@@ -34,8 +34,8 @@ Current behavior:
 - On battle map start, assigns enemy sprites to tagged map events.
 - Opens battle card selection, confirms player/fog picks, and creates the final 10-card deck.
 - Calls the pure combat resolver once and stores its complete result in save-backed state.
-- Plays each displayable structured timeline event in its own MV message box.
-- Plays configured action animations and signed HP-change popups before the corresponding message box.
+- Shows player/card and friendly-buff action names at bottom-left and enemy action names at bottom-right without using MV's message window.
+- Plays configured action animations and signed HP-change popups, then waits 30 frames before advancing to the next action.
 - Applies the final hero HP once, reserves transfer to the origin map, and restores the pre-battle player/follower formation after transfer.
 
 Current battle context shape:
@@ -75,8 +75,9 @@ $gameSystem._foglandsMapBattle = {
 transfer resumes into `selection`; confirming a valid card selection snapshots
 the player picks, random fog picks, and final 10-card deck, then advances to
 `combat`. Entering combat calls `FoglandsCombat.resolve(input)` once, stores the
-returned result, and plays each displayable timeline event through a separate
-MV message box.
+returned result, and plays action-bearing timeline events through map sprites.
+Non-action log events remain in the result but are skipped by the current visual
+player.
 
 The saved combat state lives at:
 
@@ -98,7 +99,9 @@ $gameSystem._foglandsMapBattle.combat = {
         animationPending: Boolean,
         animationEventIndex: Number,
         animationNextIndex: Number,
-        valuePopupPending: Boolean
+        valuePopupPending: Boolean,
+        actionPending: Boolean,
+        pauseFrames: Number
     },
     outcomeApplied: Boolean
 };
@@ -174,17 +177,24 @@ the Enemy database note box:
 
 ```text
 <FogAttackAnimation:6>
+<FogAttackName:할퀴기>
 ```
 
 `FogAnimation` is also accepted as a shorter alias. Cards already define the
 same static `animationId` field in `FogCards.json`. An `animationId` of `0`
 means no animation. Do not copy this field into runtime card instances.
+`FogActionName` is accepted as an alias for `FogAttackName`; without either
+name tag, enemy actions display as `<enemy name>의 공격`.
 
 Card actions, enemy attacks, and future companion-provided actions share this
-definition contract:
+definition contract in normalized combat input:
 
 ```js
-{ animationId: Number }
+{
+    actionName: String,
+    animationId: Number,
+    displaySide: "left" | "right"
+}
 ```
 
 Displayable action timeline events may carry:
@@ -196,6 +206,18 @@ animation: {
     targetId: Number
 }
 ```
+
+Action ownership and label placement use:
+
+```js
+actionLabel: {
+    text: String,
+    side: "left" | "right"
+}
+```
+
+Cards and future friendly companion buffs default to `left`; enemies default
+to `right`.
 
 Events that change HP may also carry the presentation-independent field:
 
@@ -213,12 +235,16 @@ show `+0` or `-0`.
 
 `Foglands_MapBattle` resolves `hero` to `$gamePlayer` and `enemy` to the
 pre-placed enemy slot matching the enemy `instanceId`. It requests the map
-character animation, waits for it to finish, then opens that event's message.
+character animation and shows the action name without opening an MV message.
 For `hpChange`, it also creates a number above the target character. The number
 rises 28 pixels and fades out over 30 frames (about 0.5 seconds at 60 FPS).
 Healing uses a sky-blue/white gradient with a `+` sign; damage uses a
-red/white gradient with a `-` sign. The event message waits until both the
-configured action animation and HP popup finish.
+red/white gradient with a `-` sign. After the configured action animation and
+HP popup finish, playback holds for 30 frames before advancing.
+
+Action labels are unboxed text with 50-pixel horizontal and bottom margins.
+Left actions anchor at `(50, Graphics.boxHeight - 50)`; right actions anchor at
+`(Graphics.boxWidth - 50, Graphics.boxHeight - 50)`.
 
 If a troop member is hidden, missing, or lacks these tags, its display slot is made transparent.
 
@@ -408,7 +434,7 @@ Map battle trigger
 -> populate enemy slot events from troop members
 -> choose cards / deck / hand
 -> resolve top-view battle
--> play timeline in the default message window
+-> play action labels, map animations, and HP popups with 30-frame pauses
 -> apply final hero HP
 -> reserve return transfer
 -> restore player/follower formation on the origin map
@@ -449,9 +475,11 @@ Post-battle actions are expected to include:
 - Multi-enemy Troops use first-living-enemy card targeting and Troop-order enemy attacks.
 - The resolver returns serializable `outcome`, `finalState`, `stats`, and `timeline` data without mutating its input.
 - MapBattle saves the complete input/result/playback state and does not reroll after scene recreation or load.
-- Each displayable timeline entry gets its own MV message box; damage, defense, healing, poison, and enemy attacks therefore advance one event at a time.
-- Card effects and enemy attacks play their configured map-character animation before the corresponding message opens.
-- Signed HP changes appear above the affected map character, rise a short distance, and fade over 30 frames before the message opens.
+- Player/card actions show their names at bottom-left; enemy actions show their names at bottom-right, with 50-pixel side and bottom margins.
+- The battle playback path does not call MV's message window.
+- Card effects and enemy attacks play their configured map-character animations one event at a time.
+- Signed HP changes appear above the affected map character, rise a short distance, and fade over 30 frames.
+- Playback waits another 30 frames after the action animation and HP popup finish before advancing.
 - Final hero HP is applied once and guarded by `outcomeApplied`.
 - Player position/direction and visible follower positions/directions are captured before battle transfer.
 - Origin transfer keeps the battle context until destination-map formation restoration completes.
@@ -460,7 +488,7 @@ Post-battle actions are expected to include:
 
 ### Partial
 
-- Battle presentation works as one animation/HP-popup/message step per displayable action event, but has no HUD, movement choreography, timed autoplay, speed controls, or instant completion.
+- Battle presentation works as one label/animation/HP-popup/pause step per action event, but has no HUD, movement choreography, speed controls, or instant completion.
 - Victory/defeat/timeout are calculated and return transfer is connected, but no result review screen or custom outcome branch exists.
 - `canLose` now controls defeat revival before return; `canEscape` still has no custom escape behavior.
 - MV Battle Processing branches are not integrated with the custom result; `command301` currently assigns its branch value at encounter start.
@@ -613,8 +641,8 @@ function rewardOffer(pity) {
 **Status: Implemented.** The resolver covers the base automatic turn loop and returns a deterministic timeline.
 
 The first MV implementation now resolves the automatic battle and is capped at
-28 turns. It returns structured timeline events; MapBattle currently formats
-each displayable event into its own MV message box.
+28 turns. It returns structured timeline events; MapBattle currently presents
+action-bearing events with side labels, animations, HP popups, and fixed pauses.
 
 Prototype rules:
 
@@ -699,7 +727,7 @@ later progression layer needs derived scaling.
 
 ### 6. Battle Runtime State
 
-**Status: Implemented.** The complete resolved result and message playback cursor are stored under the save-backed map-battle context.
+**Status: Implemented.** The complete resolved result and visual playback cursor are stored under the save-backed map-battle context.
 
 The combat resolver now returns its own result object. MapBattle stores it under
 `$gameSystem._foglandsMapBattle.combat`; it remains separate from `$gameTroop`
@@ -895,14 +923,14 @@ if (curses >= 3) ids = ids.filter(i => i !== "brand");
 
 ### 11. Battle Viewing UX And Result Branching
 
-**Status: Partial.** Per-event map animations, signed HP popups, message-window playback, final HP application, and origin formation restoration work. Custom viewing controls and post-battle review/reward branches are missing.
+**Status: Partial.** Per-event side labels, map animations, signed HP popups, fixed pauses, final HP application, and origin formation restoration work. Custom viewing controls and post-battle review/reward branches are missing.
 
-The MV implementation currently presents every displayable structured timeline
-event through a separate default message box. This keeps each attack, defense,
-healing, poison, and enemy attack event individually addressable for later
-visual effects. HP-changing events already show a signed number above the
-affected map character before their message. Custom HUD, automatic timed
-playback, speed controls, and instant completion remain pending.
+The MV implementation presents action-bearing timeline events without the MV
+message window. Friendly action names appear at bottom-left and enemy action
+names at bottom-right. Each action can play a map animation and signed HP popup,
+then holds for 30 frames before the next action. Non-action events such as turn
+start and draw remain in the timeline but are not currently rendered. Custom
+HUD, speed controls, and instant completion remain pending.
 
 Prototype UX:
 
@@ -948,6 +976,6 @@ Work in this order unless the user explicitly redirects the prototype:
 2. Persist a notebook entry from `combat.result.stats` before the return restoration clears the battle context.
 3. Add the three-card reward offer, pity state, and reward acquisition after normal victory.
 4. Add the fog-picked-card reveal between deck confirmation and timeline playback.
-5. Replace manual message paging with a minimal Map002 battle HUD and timed playback while preserving per-event animation sequencing; add speed and instant-complete controls afterward.
+5. Add a minimal Map002 battle HUD around the existing timed action playback; add speed and instant-complete controls afterward.
 6. Add companion promise/buff inputs to the resolver, then betrayal evidence and accusation/purification phases.
 7. Add mythos events, card upgrade/removal workflows, curse acquisition controls, and village/run progression.

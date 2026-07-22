@@ -37,9 +37,10 @@
  *   battle deck on the saved battle context.
  * - The combat phase calls FoglandsCombat.resolve() once and stores its
  *   serializable result on the battle context.
- * - Each displayable timeline event is shown in its own RPG Maker MV message.
- * - Action animations play on the map character targeted by each timeline
- *   event before that event's message opens.
+ * - Player/card action names appear at bottom-left; enemy action names appear
+ *   at bottom-right, both with 50-pixel edge margins and no message window.
+ * - Action animations and HP popups play before a 30-frame pause advances to
+ *   the next action.
  * - After playback, the player returns to the origin map and the pre-battle
  *   player/follower formation is restored.
  *
@@ -57,6 +58,8 @@
     var battleY = Number(params['Battle Y'] || 6);
     var hpPopupDuration = 30;
     var hpPopupRise = 28;
+    var actionPauseFrames = 30;
+    var actionLabelMargin = 50;
 
     function Sprite_FoglandsHpChange() {
         this.initialize.apply(this, arguments);
@@ -123,6 +126,30 @@
 
     Sprite_FoglandsHpChange.prototype.isPlaying = function() {
         return this._elapsed < this._duration && !!this.parent;
+    };
+
+    function Sprite_FoglandsActionLabel() {
+        this.initialize.apply(this, arguments);
+    }
+
+    Sprite_FoglandsActionLabel.prototype = Object.create(Sprite.prototype);
+    Sprite_FoglandsActionLabel.prototype.constructor = Sprite_FoglandsActionLabel;
+
+    Sprite_FoglandsActionLabel.prototype.initialize = function(text, side) {
+        Sprite.prototype.initialize.call(this);
+        this._side = side === 'right' ? 'right' : 'left';
+        this.bitmap = new Bitmap(Math.max(1, Graphics.boxWidth - actionLabelMargin * 2), 56);
+        this.bitmap.fontFace = 'GameFont';
+        this.bitmap.fontSize = 28;
+        this.bitmap.textColor = '#ffffff';
+        this.bitmap.outlineColor = 'rgba(20, 18, 24, 0.9)';
+        this.bitmap.outlineWidth = 5;
+        this.bitmap.drawText(text, 0, 0, this.bitmap.width, 56, this._side);
+        this.anchor.x = this._side === 'right' ? 1 : 0;
+        this.anchor.y = 1;
+        this.x = this._side === 'right' ?
+            Graphics.boxWidth - actionLabelMargin : actionLabelMargin;
+        this.y = Graphics.boxHeight - actionLabelMargin;
     };
 
     window.FoglandsMapBattle = window.FoglandsMapBattle || {};
@@ -271,6 +298,7 @@
                 cardId: instance.cardId,
                 upgraded: !!instance.upgraded,
                 name: card.name,
+                actionName: card.name,
                 category: card.category,
                 tier: card.tier,
                 animationId: Number(card.animationId || 0),
@@ -289,6 +317,8 @@
                 instanceId: index + 1,
                 enemyId: enemy.id,
                 name: enemy.name,
+                actionName: String(enemy.meta.FogAttackName ||
+                    enemy.meta.FogActionName || enemy.name + '의 공격'),
                 hp: Number(enemy.params[0] || 1),
                 maxHp: Number(enemy.params[0] || 1),
                 attack: Number(enemy.params[2] || 0),
@@ -346,7 +376,9 @@
                 animationPending: false,
                 animationEventIndex: -1,
                 animationNextIndex: 0,
-                valuePopupPending: false
+                valuePopupPending: false,
+                actionPending: false,
+                pauseFrames: -1
             },
             outcomeApplied: false
         };
@@ -396,79 +428,6 @@
         } else if (state.phase === 'combat') {
             FoglandsMapBattle.startCombat();
         }
-    };
-
-    FoglandsMapBattle.formatTimelineEvent = function(event) {
-        var cardName = event.card ? event.card.name + (event.card.upgraded ? '+' : '') : '';
-        var targetName = event.target ? event.target.name : '';
-        var heroState = event.state && event.state.hero;
-        var targetState = event.state && event.state.enemies.filter(function(enemy) {
-            return event.target && enemy.instanceId === event.target.instanceId;
-        })[0];
-
-        if (event.type === 'battleStart') {
-            return '전투 시작: ' + event.enemies.map(function(enemy) {
-                return enemy.name + ' HP ' + enemy.hp + ' / 공격 ' + enemy.attack;
-            }).join(', ');
-        }
-        if (event.type === 'turnStart') {
-            return event.turn + '턴 시작 - ' + event.drawCount + '장 드로우';
-        }
-        if (event.type === 'draw') {
-            return '드로우: ' + event.cards.map(function(card) { return card.name; }).join(', ');
-        }
-        if (event.type === 'reshuffle') return '버림 더미를 다시 섞습니다. (' + event.count + '회)';
-        if (event.type === 'cardSealed') return '[' + cardName + '] 봉인되어 불발했습니다.';
-        if (event.type === 'curseFizzle') return '[' + cardName + '] 안개 속에서 불발했습니다.';
-        if (event.type === 'cardMiss') {
-            return '[' + cardName + '] 빗나감 - 확률 ' + event.probability.effective +
-                '%, 판정 ' + event.probability.roll;
-        }
-        if (event.type === 'damage') {
-            return '[' + cardName + '] ' + targetName + '에게 피해 ' + event.amount +
-                (targetState ? ' (HP ' + targetState.hp + '/' + targetState.maxHp + ')' : '');
-        }
-        if (event.type === 'selfDamage') {
-            return '[' + cardName + '] 자신에게 피해 ' + event.amount +
-                (heroState ? ' (HP ' + heroState.hp + '/' + heroState.maxHp + ')' : '');
-        }
-        if (event.type === 'heal') {
-            return '[' + cardName + '] 체력 회복 ' + event.amount +
-                (heroState ? ' (HP ' + heroState.hp + '/' + heroState.maxHp + ')' : '');
-        }
-        if (event.type === 'block') return '[' + cardName + '] 방어막 +' + event.amount;
-        if (event.type === 'blockRetain') return '[' + cardName + '] 유지 방어막 +' + event.amount;
-        if (event.type === 'blockPermanent') {
-            return '[' + cardName + '] 영구 방어막 ' + event.total + '/' + event.cap;
-        }
-        if (event.type === 'poisonApplied') {
-            return '[' + cardName + '] ' + targetName + ' 중독 +' + event.amount + ' (누적 ' + event.total + ')';
-        }
-        if (event.type === 'poisonDoubled') {
-            return '[' + cardName + '] ' + targetName + ' 중독 ' + event.before + ' -> ' + event.total;
-        }
-        if (event.type === 'drawNext') return '[' + cardName + '] 다음 턴 드로우 +' + event.amount;
-        if (event.type === 'probabilityNext') return '[' + cardName + '] 다음 턴 성공률 +' + event.amount + '%p';
-        if (event.type === 'poisonTick') {
-            return targetName + ' 중독 피해 ' + event.amount +
-                (targetState ? ' (HP ' + targetState.hp + '/' + targetState.maxHp + ')' : '');
-        }
-        if (event.type === 'enemyAttack') {
-            return event.source.name + '의 공격 ' + event.attack + ' - 피해 ' + event.damage +
-                ', 방어막 ' + event.block +
-                (heroState ? ' (HP ' + heroState.hp + '/' + heroState.maxHp + ')' : '');
-        }
-        if (event.type === 'thornDamage') {
-            return targetName + '에게 가시 반사 피해 ' + event.amount +
-                (targetState ? ' (HP ' + targetState.hp + '/' + targetState.maxHp + ')' : '');
-        }
-        if (event.type === 'timeout') return event.maxTurns + '턴 초과 - 안개가 전장을 삼켰습니다.';
-        if (event.type === 'battleEnd') {
-            if (event.result === 'victory') return '전투 승리!';
-            if (event.result === 'timeout') return '전투 패배: 제한 턴을 초과했습니다.';
-            return '전투 패배.';
-        }
-        return null;
     };
 
     FoglandsMapBattle.applyCombatOutcome = function() {
@@ -534,12 +493,45 @@
         return false;
     };
 
-    FoglandsMapBattle.showTimelineMessage = function(playback, text, nextIndex) {
-        $gameMessage.setBackground(0);
-        $gameMessage.setPositionType(2);
-        $gameMessage.add(text);
-        playback.pending = true;
-        playback.nextIndex = nextIndex;
+    FoglandsMapBattle.timelineActionLabel = function(event) {
+        if (!event) return null;
+        if (event.type === 'cardSuccess') return null;
+        if (event.actionLabel && event.actionLabel.text) return event.actionLabel;
+        if (event.card && event.card.name) {
+            return {
+                text: event.card.name + (event.card.upgraded ? '+' : ''),
+                side: 'left'
+            };
+        }
+        if (event.type === 'enemyAttack' && event.source) {
+            return { text: event.source.name, side: 'right' };
+        }
+        if (event.type === 'poisonTick') return { text: '중독', side: 'left' };
+        if (event.type === 'thornDamage') return { text: '가시 반사', side: 'left' };
+        return null;
+    };
+
+    FoglandsMapBattle.startTimelineActionLabel = function(event) {
+        var labelData = FoglandsMapBattle.timelineActionLabel(event);
+        var scene = SceneManager._scene;
+        if (!labelData || !scene || !scene.addChild) return false;
+
+        FoglandsMapBattle.clearTimelineActionLabel();
+        var label = new Sprite_FoglandsActionLabel(labelData.text, labelData.side);
+        scene.addChild(label);
+        FoglandsMapBattle._timelineActionLabel = label;
+        return true;
+    };
+
+    FoglandsMapBattle.clearTimelineActionLabel = function() {
+        var label = FoglandsMapBattle._timelineActionLabel;
+        if (label && label.parent) label.parent.removeChild(label);
+        FoglandsMapBattle._timelineActionLabel = null;
+    };
+
+    FoglandsMapBattle.isTimelineActionEvent = function(event) {
+        return !!(FoglandsMapBattle.timelineActionLabel(event) ||
+            event && (event.animation || event.hpChange));
     };
 
     FoglandsMapBattle.updateCombatTimeline = function() {
@@ -551,12 +543,11 @@
         var timeline = combat.result.timeline || [];
 
         if (playback.pending) {
-            if ($gameMessage.isBusy()) return;
             playback.index = playback.nextIndex;
             playback.pending = false;
         }
 
-        if (playback.animationPending || playback.valuePopupPending) {
+        if (playback.actionPending || playback.animationPending || playback.valuePopupPending) {
             var animatedEvent = timeline[playback.animationEventIndex];
             var animationTarget = FoglandsMapBattle.timelineAnimationTarget(
                 animatedEvent && animatedEvent.animation
@@ -579,46 +570,50 @@
             }
             if (presentationPlaying) return;
 
-            var animatedText = FoglandsMapBattle.formatTimelineEvent(animatedEvent);
-            if (animatedText) {
-                FoglandsMapBattle.showTimelineMessage(
-                    playback, animatedText, playback.animationNextIndex
-                );
+            if (playback.pauseFrames == null || playback.pauseFrames < 0) {
+                playback.pauseFrames = actionPauseFrames;
+            }
+            if (playback.pauseFrames > 0) {
+                playback.pauseFrames--;
                 return;
             }
+
+            FoglandsMapBattle.clearTimelineActionLabel();
             playback.index = playback.animationNextIndex;
+            playback.actionPending = false;
+            playback.animationEventIndex = -1;
+            playback.pauseFrames = -1;
         }
 
-        if (playback.index < timeline.length && !$gameMessage.isBusy()) {
+        if (playback.index < timeline.length) {
             var cursor = playback.index;
-            var messageText = null;
+            var actionEvent = null;
             var eventIndex = -1;
-            while (cursor < timeline.length && !messageText) {
+            while (cursor < timeline.length && !actionEvent) {
                 eventIndex = cursor;
-                messageText = FoglandsMapBattle.formatTimelineEvent(timeline[cursor]);
+                if (FoglandsMapBattle.isTimelineActionEvent(timeline[cursor])) {
+                    actionEvent = timeline[cursor];
+                }
                 cursor++;
             }
 
-            if (!messageText) {
+            if (!actionEvent) {
                 playback.index = cursor;
                 return;
             }
 
-            var animationStarted = FoglandsMapBattle.startTimelineAnimation(timeline[eventIndex]);
-            var valuePopupStarted = FoglandsMapBattle.startTimelineHpChange(timeline[eventIndex]);
-            if (animationStarted || valuePopupStarted) {
-                playback.animationPending = animationStarted;
-                playback.valuePopupPending = valuePopupStarted;
-                playback.animationEventIndex = eventIndex;
-                playback.animationNextIndex = cursor;
-                return;
-            }
-
-            FoglandsMapBattle.showTimelineMessage(playback, messageText, cursor);
+            playback.animationPending = FoglandsMapBattle.startTimelineAnimation(actionEvent);
+            playback.valuePopupPending = FoglandsMapBattle.startTimelineHpChange(actionEvent);
+            FoglandsMapBattle.startTimelineActionLabel(actionEvent);
+            playback.actionPending = true;
+            playback.animationEventIndex = eventIndex;
+            playback.animationNextIndex = cursor;
+            playback.pauseFrames = -1;
             return;
         }
 
-        if (playback.index >= timeline.length && !$gameMessage.isBusy()) {
+        if (playback.index >= timeline.length) {
+            FoglandsMapBattle.clearTimelineActionLabel();
             FoglandsMapBattle.applyCombatOutcome();
         }
     };

@@ -47,9 +47,11 @@
             uid: Number(source.uid || 0),
             cardId: Number(source.cardId || 0),
             name: String(source.name || ''),
+            actionName: String(source.actionName || source.name || ''),
             category: String(source.category || 'skill'),
             tier: String(source.tier || 'common'),
             animationId: Math.max(0, Number(source.animationId || 0)),
+            displaySide: source.displaySide === 'right' ? 'right' : 'left',
             successRate: Number(source.successRate == null ? 100 : source.successRate),
             upgraded: !!source.upgraded,
             effects: copyEffects(source.effects)
@@ -118,11 +120,14 @@
             instanceId: Number(source.instanceId || index + 1),
             enemyId: Number(source.enemyId || 0),
             name: String(source.name || ('Enemy ' + (index + 1))),
+            actionName: String(source.actionName || source.name || ('Enemy ' + (index + 1))),
             hp: clamp(Number(source.hp == null ? maxHp : source.hp), 0, maxHp),
             maxHp: maxHp,
             attack: Math.max(0, Number(source.attack || 0)),
             animationId: Math.max(0, Number(source.animationId || 0)),
+            displaySide: source.displaySide === 'left' ? 'left' : 'right',
             poison: Math.max(0, Number(source.poison || 0)),
+            poisonSource: source.poisonSource || null,
             defeated: false
         };
     }
@@ -245,17 +250,36 @@
             };
         }
 
+        function actionLabelRef(source) {
+            var text = source && (source.actionName || source.name);
+            if (!text) return null;
+            return {
+                text: text + (source.upgraded ? '+' : ''),
+                side: source.displaySide === 'right' ? 'right' : 'left'
+            };
+        }
+
         function pushActionEvent(type, data, source, targetType, target, hpChange) {
             var animation = animationRef(source, targetType, target);
             var change = hpChangeRef(hpChange, targetType, target);
+            var label = actionLabelRef(source);
             if (animation) data.animation = animation;
             if (change) data.hpChange = change;
+            if (label) data.actionLabel = label;
             pushEvent(type, data);
         }
 
-        function pushHpChangeEvent(type, data, amount, targetType, target) {
+        function pushHpChangeEvent(type, data, amount, targetType, target, source) {
             var change = hpChangeRef(amount, targetType, target);
+            var label = actionLabelRef(source);
             if (change) data.hpChange = change;
+            if (label) data.actionLabel = label;
+            pushEvent(type, data);
+        }
+
+        function pushLabeledEvent(type, data, source) {
+            var label = actionLabelRef(source);
+            if (label) data.actionLabel = label;
             pushEvent(type, data);
         }
 
@@ -363,6 +387,12 @@
                 } else if (effect.code === 'poison' && target && target.hp > 0) {
                     amount = Math.max(0, Number(effect.value || 0));
                     target.poison += amount;
+                    target.poisonSource = {
+                        name: card.name,
+                        actionName: card.actionName,
+                        upgraded: card.upgraded,
+                        displaySide: card.displaySide
+                    };
                     pushActionEvent('poisonApplied', {
                         card: cardRef(card),
                         target: enemyRef(target),
@@ -372,6 +402,12 @@
                 } else if (effect.code === 'poisonDouble' && target && target.hp > 0) {
                     var oldPoison = target.poison;
                     target.poison *= 2;
+                    target.poisonSource = {
+                        name: card.name,
+                        actionName: card.actionName,
+                        upgraded: card.upgraded,
+                        displaySide: card.displaySide
+                    };
                     pushActionEvent('poisonDoubled', {
                         card: cardRef(card),
                         target: enemyRef(target),
@@ -420,6 +456,7 @@
                 }
 
                 var thorn = 0;
+                var thornSource = null;
                 var probabilityBonus = pendingProbability;
                 var drawBonus = pendingDraw;
                 pendingProbability = 0;
@@ -447,13 +484,13 @@
 
                     if (card.uid === sealedUid) {
                         stats.sealed++;
-                        pushEvent('cardSealed', { card: cardRef(card) });
+                        pushLabeledEvent('cardSealed', { card: cardRef(card) }, card);
                         continue;
                     }
 
                     if (card.category === 'curse' || card.tier === 'curse' || effectByCode(card, 'fizzle')) {
                         stats.curseFizzle++;
-                        pushEvent('curseFizzle', { card: cardRef(card) });
+                        pushLabeledEvent('curseFizzle', { card: cardRef(card) }, card);
                         continue;
                     }
 
@@ -504,7 +541,10 @@
                         applySuccessfulCard(card, target, hitIndex, hitCount);
 
                         var thornEffect = effectByCode(card, 'thorn');
-                        if (thornEffect) thorn += Math.max(0, Number(thornEffect.value || 0));
+                        if (thornEffect) {
+                            thorn += Math.max(0, Number(thornEffect.value || 0));
+                            thornSource = card;
+                        }
                         if (allEnemiesDefeated(enemies)) break;
                     }
 
@@ -522,7 +562,8 @@
                         pushHpChangeEvent('poisonTick', {
                             target: enemyRef(enemy),
                             amount: enemy.poison
-                        }, -enemy.poison, 'enemy', enemy);
+                        }, -enemy.poison, 'enemy', enemy,
+                            enemy.poisonSource || { name: '중독', displaySide: 'left' });
                     }
                 });
 
@@ -552,7 +593,8 @@
                         pushHpChangeEvent('thornDamage', {
                             target: enemyRef(attacker),
                             amount: thorn
-                        }, -thorn, 'enemy', attacker);
+                        }, -thorn, 'enemy', attacker,
+                            thornSource || { name: '가시 반사', displaySide: 'left' });
                     }
 
                     if (hero.hp <= 0) {
