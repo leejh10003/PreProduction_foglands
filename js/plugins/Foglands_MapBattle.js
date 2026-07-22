@@ -43,10 +43,12 @@
  *   the next action.
  * - Attackers lunge toward targets, hit targets recoil with a red pulse, and
  *   self-buffs pulse blue and play Heal1 at pitch 140.
+ * - The hero and every instantiated enemy have HP bars above their map
+ *   character sprites; bars follow visual choreography and timeline state.
  * - After playback, the player returns to the origin map and the pre-battle
  *   player/follower formation is restored.
  *
- * A custom battle HUD and post-battle accusation are not implemented yet.
+ * A broader battle HUD and post-battle accusation are not implemented yet.
  */
 
 (function() {
@@ -65,6 +67,10 @@
     var buffGlowFrames = 24;
     var attackLungeDistance = 18;
     var hitRecoilDistance = 10;
+    var hpBarWidth = 52;
+    var hpBarHeight = 7;
+    var hpBarBorder = 2;
+    var hpBarHeadGap = 8;
 
     function Sprite_FoglandsHpChange() {
         this.initialize.apply(this, arguments);
@@ -155,6 +161,63 @@
         this.x = this._side === 'right' ?
             Graphics.boxWidth - actionLabelMargin : actionLabelMargin;
         this.y = Graphics.boxHeight - actionLabelMargin;
+    };
+
+    function Sprite_FoglandsHpBar() {
+        this.initialize.apply(this, arguments);
+    }
+
+    Sprite_FoglandsHpBar.prototype = Object.create(Sprite.prototype);
+    Sprite_FoglandsHpBar.prototype.constructor = Sprite_FoglandsHpBar;
+
+    Sprite_FoglandsHpBar.prototype.initialize = function(characterSprite, hp, maxHp) {
+        Sprite.prototype.initialize.call(this);
+        this._characterSprite = characterSprite;
+        this._hp = -1;
+        this._maxHp = -1;
+        this.bitmap = new Bitmap(
+            hpBarWidth + hpBarBorder * 2,
+            hpBarHeight + hpBarBorder * 2
+        );
+        this.anchor.x = 0.5;
+        this.anchor.y = 1;
+        this.z = 10;
+        this.setHp(hp, maxHp);
+        this.updatePosition();
+    };
+
+    Sprite_FoglandsHpBar.prototype.setHp = function(hp, maxHp) {
+        maxHp = Math.max(1, Number(maxHp || 1));
+        hp = Math.max(0, Math.min(maxHp, Number(hp || 0)));
+        if (this._hp === hp && this._maxHp === maxHp) return;
+        this._hp = hp;
+        this._maxHp = maxHp;
+        this.redraw();
+    };
+
+    Sprite_FoglandsHpBar.prototype.redraw = function() {
+        var ratio = this._maxHp > 0 ? this._hp / this._maxHp : 0;
+        var fillWidth = Math.round(hpBarWidth * ratio);
+        var color = ratio > 0.5 ? '#52c77a' : (ratio > 0.25 ? '#e0b84f' : '#e15b5b');
+        this.bitmap.clear();
+        this.bitmap.fillRect(0, 0, this.bitmap.width, this.bitmap.height, 'rgba(16, 14, 20, 0.9)');
+        this.bitmap.fillRect(
+            hpBarBorder, hpBarBorder, hpBarWidth, hpBarHeight, 'rgba(54, 48, 62, 0.95)'
+        );
+        if (fillWidth > 0) {
+            this.bitmap.fillRect(
+                hpBarBorder, hpBarBorder, fillWidth, hpBarHeight, color
+            );
+        }
+    };
+
+    Sprite_FoglandsHpBar.prototype.updatePosition = function() {
+        var target = this._characterSprite;
+        if (!target) return;
+        this.x = target.x;
+        this.y = target.y - (target.height || 48) - hpBarHeadGap;
+        this.visible = target.visible !== false &&
+            (target.opacity == null || target.opacity > 0);
     };
 
     window.FoglandsMapBattle = window.FoglandsMapBattle || {};
@@ -452,6 +515,7 @@
         if (!combat.result.outcome.victory && state.canLose) {
             $gameParty.reviveBattleMembers();
         }
+        FoglandsMapBattle.clearCombatHpBars();
         FoglandsMapBattle.returnToOrigin();
     };
 
@@ -471,6 +535,118 @@
         return sprites.filter(function(sprite) {
             return sprite && sprite._character === character;
         })[0] || null;
+    };
+
+    FoglandsMapBattle.clearCombatHpBars = function() {
+        (FoglandsMapBattle._combatHpBars || []).forEach(function(entry) {
+            if (entry.sprite && entry.sprite.parent) {
+                entry.sprite.parent.removeChild(entry.sprite);
+            }
+        });
+        FoglandsMapBattle._combatHpBars = [];
+        FoglandsMapBattle._combatHpBarSeed = 0;
+        FoglandsMapBattle._combatHpBarContainer = null;
+    };
+
+    FoglandsMapBattle.currentCombatHpSnapshot = function(combat) {
+        if (!combat || !combat.input) return null;
+        var snapshot = {
+            hero: {
+                hp: combat.input.hero.hp,
+                maxHp: combat.input.hero.maxHp
+            },
+            enemies: combat.input.enemies.map(function(enemy) {
+                return {
+                    instanceId: enemy.instanceId,
+                    hp: enemy.hp,
+                    maxHp: enemy.maxHp
+                };
+            })
+        };
+        var timeline = combat.result && combat.result.timeline || [];
+        var playback = combat.playback || {};
+        var lastIndex = Math.max(-1, Number(playback.index || 0) - 1);
+        if (playback.actionPending && playback.animationEventIndex >= 0) {
+            lastIndex = playback.animationEventIndex;
+        }
+        for (var index = 0; index <= lastIndex && index < timeline.length; index++) {
+            if (timeline[index] && timeline[index].state) snapshot = timeline[index].state;
+        }
+        return snapshot;
+    };
+
+    FoglandsMapBattle.applyCombatHpSnapshot = function(snapshot) {
+        if (!snapshot) return;
+        (FoglandsMapBattle._combatHpBars || []).forEach(function(entry) {
+            if (entry.targetType === 'hero' && snapshot.hero) {
+                entry.sprite.setHp(snapshot.hero.hp, snapshot.hero.maxHp);
+            } else if (entry.targetType === 'enemy') {
+                var enemy = (snapshot.enemies || []).filter(function(item) {
+                    return item.instanceId === entry.targetId;
+                })[0];
+                if (enemy) entry.sprite.setHp(enemy.hp, enemy.maxHp);
+            }
+        });
+    };
+
+    FoglandsMapBattle.ensureCombatHpBars = function() {
+        var state = FoglandsMapBattle.current();
+        var combat = state && state.phase === 'combat' && state.combat;
+        var scene = SceneManager._scene;
+        var spriteset = scene && scene._spriteset;
+        var container = spriteset && (spriteset._tilemap || spriteset);
+        if (!combat || !combat.input || !container) {
+            FoglandsMapBattle.clearCombatHpBars();
+            return false;
+        }
+
+        var expectedCount = 1 + combat.input.enemies.length;
+        if (FoglandsMapBattle._combatHpBarSeed === state.combatSeed &&
+                FoglandsMapBattle._combatHpBarContainer === container &&
+                (FoglandsMapBattle._combatHpBars || []).length === expectedCount) {
+            return true;
+        }
+
+        FoglandsMapBattle.clearCombatHpBars();
+        var entries = [{
+            targetType: 'hero',
+            targetId: combat.input.hero.actorId,
+            hp: combat.input.hero.hp,
+            maxHp: combat.input.hero.maxHp
+        }].concat(combat.input.enemies.map(function(enemy) {
+            return {
+                targetType: 'enemy',
+                targetId: enemy.instanceId,
+                hp: enemy.hp,
+                maxHp: enemy.maxHp
+            };
+        }));
+
+        FoglandsMapBattle._combatHpBars = entries.map(function(entry) {
+            var characterSprite = FoglandsMapBattle.timelineCharacterSprite(entry);
+            if (!characterSprite) return null;
+            var bar = new Sprite_FoglandsHpBar(characterSprite, entry.hp, entry.maxHp);
+            container.addChild(bar);
+            return {
+                targetType: entry.targetType,
+                targetId: entry.targetId,
+                sprite: bar
+            };
+        }).filter(function(entry) {
+            return !!entry;
+        });
+        FoglandsMapBattle._combatHpBarSeed = state.combatSeed;
+        FoglandsMapBattle._combatHpBarContainer = container;
+        FoglandsMapBattle.applyCombatHpSnapshot(
+            FoglandsMapBattle.currentCombatHpSnapshot(combat)
+        );
+        return FoglandsMapBattle._combatHpBars.length === expectedCount;
+    };
+
+    FoglandsMapBattle.updateCombatHpBars = function() {
+        (FoglandsMapBattle._combatHpBars || []).forEach(function(entry) {
+            entry.sprite.updatePosition();
+        });
     };
 
     FoglandsMapBattle.setChoreographyPosition = function(sprite, offsetX, offsetY) {
@@ -717,6 +893,7 @@
                 return;
             }
 
+            FoglandsMapBattle.applyCombatHpSnapshot(actionEvent.state);
             playback.animationPending = FoglandsMapBattle.startTimelineAnimation(actionEvent);
             playback.valuePopupPending = FoglandsMapBattle.startTimelineHpChange(actionEvent);
             playback.choreographyPending =
@@ -737,6 +914,7 @@
     };
 
     FoglandsMapBattle.clear = function() {
+        FoglandsMapBattle.clearCombatHpBars();
         $gameSystem._foglandsMapBattle = null;
     };
 
@@ -912,7 +1090,9 @@
     Scene_Map.prototype.update = function() {
         _Scene_Map_update.call(this);
         if (FoglandsMapBattle.isBattleMap()) {
+            FoglandsMapBattle.ensureCombatHpBars();
             FoglandsMapBattle.updateCombatTimeline();
+            FoglandsMapBattle.updateCombatHpBars();
         }
     };
 })();
