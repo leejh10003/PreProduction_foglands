@@ -37,7 +37,7 @@ Current behavior:
 - Shows player/card and friendly-buff action names at bottom-left and enemy action names at bottom-right without using MV's message window.
 - Plays configured action animations and signed HP-change popups, then waits 30 frames before advancing to the next action.
 - Adds sprite-only attack lunges, hit recoil/red pulses, and self-buff blue pulses without changing map coordinates.
-- Displays timeline-synchronized HP bars above the hero and each instantiated enemy map sprite.
+- Displays timeline-synchronized HP bars and current/max HP numbers above the hero and each instantiated enemy map sprite.
 - Applies the final hero HP once, reserves transfer to the origin map, and restores the pre-battle player/follower formation after transfer.
 
 Current battle context shape:
@@ -258,6 +258,10 @@ the same `instanceId` used for enemy display slots.
 Current visual rules:
 
 - 52x7-pixel inner bar with a 2-pixel dark border.
+- A transparent 76-pixel text area to the right shows `current HP / max HP` in
+  16-pixel outlined text.
+- The combined bitmap uses a corrected anchor so the bar itself, rather than
+  the bar-plus-text group, remains centered over the character.
 - Positioned 8 pixels above the rendered character sprite's head.
 - Follows the final `Sprite_Character` position every frame, including lunge
   and recoil offsets.
@@ -532,7 +536,7 @@ Post-battle actions are expected to include:
 - Signed HP changes appear above the affected map character, rise a short distance, and fade over 30 frames.
 - Attackers lunge 18 pixels toward their targets; hit targets recoil 10 pixels and pulse red before both sprites return to their map positions.
 - Friendly self-buffs remain stationary, pulse blue for 24 frames, and play `Heal1` at pitch 140.
-- The hero and every instantiated enemy have a compact HP bar above their head; bars follow choreography and serialized timeline HP.
+- The hero and every instantiated enemy have a compact HP bar with current/max HP text above their head; bars follow choreography and serialized timeline HP.
 - Playback waits another 30 frames after choreography, the action animation, and the HP popup finish before advancing.
 - Final hero HP is applied once and guarded by `outcomeApplied`.
 - Player position/direction and visible follower positions/directions are captured before battle transfer.

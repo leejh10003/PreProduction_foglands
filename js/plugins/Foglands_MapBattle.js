@@ -43,8 +43,8 @@
  *   the next action.
  * - Attackers lunge toward targets, hit targets recoil with a red pulse, and
  *   self-buffs pulse blue and play Heal1 at pitch 140.
- * - The hero and every instantiated enemy have HP bars above their map
- *   character sprites; bars follow visual choreography and timeline state.
+ * - The hero and every instantiated enemy have HP bars and current/max HP
+ *   numbers above their map sprites; both follow choreography and timeline state.
  * - After playback, the player returns to the origin map and the pre-battle
  *   player/follower formation is restored.
  *
@@ -71,6 +71,9 @@
     var hpBarHeight = 7;
     var hpBarBorder = 2;
     var hpBarHeadGap = 8;
+    var hpBarTextGap = 6;
+    var hpBarTextWidth = 76;
+    var hpBarBitmapHeight = 20;
 
     function Sprite_FoglandsHpChange() {
         this.initialize.apply(this, arguments);
@@ -175,11 +178,15 @@
         this._characterSprite = characterSprite;
         this._hp = -1;
         this._maxHp = -1;
-        this.bitmap = new Bitmap(
-            hpBarWidth + hpBarBorder * 2,
-            hpBarHeight + hpBarBorder * 2
-        );
-        this.anchor.x = 0.5;
+        var barOuterWidth = hpBarWidth + hpBarBorder * 2;
+        var bitmapWidth = barOuterWidth + hpBarTextGap + hpBarTextWidth;
+        this.bitmap = new Bitmap(bitmapWidth, hpBarBitmapHeight);
+        this.bitmap.fontFace = 'GameFont';
+        this.bitmap.fontSize = 16;
+        this.bitmap.textColor = '#ffffff';
+        this.bitmap.outlineColor = 'rgba(16, 14, 20, 0.95)';
+        this.bitmap.outlineWidth = 3;
+        this.anchor.x = (barOuterWidth / 2) / bitmapWidth;
         this.anchor.y = 1;
         this.z = 10;
         this.setHp(hp, maxHp);
@@ -199,16 +206,30 @@
         var ratio = this._maxHp > 0 ? this._hp / this._maxHp : 0;
         var fillWidth = Math.round(hpBarWidth * ratio);
         var color = ratio > 0.5 ? '#52c77a' : (ratio > 0.25 ? '#e0b84f' : '#e15b5b');
+        var barOuterWidth = hpBarWidth + hpBarBorder * 2;
+        var barOuterHeight = hpBarHeight + hpBarBorder * 2;
+        var barY = Math.floor((hpBarBitmapHeight - barOuterHeight) / 2);
         this.bitmap.clear();
-        this.bitmap.fillRect(0, 0, this.bitmap.width, this.bitmap.height, 'rgba(16, 14, 20, 0.9)');
         this.bitmap.fillRect(
-            hpBarBorder, hpBarBorder, hpBarWidth, hpBarHeight, 'rgba(54, 48, 62, 0.95)'
+            0, barY, barOuterWidth, barOuterHeight, 'rgba(16, 14, 20, 0.9)'
+        );
+        this.bitmap.fillRect(
+            hpBarBorder, barY + hpBarBorder,
+            hpBarWidth, hpBarHeight, 'rgba(54, 48, 62, 0.95)'
         );
         if (fillWidth > 0) {
             this.bitmap.fillRect(
-                hpBarBorder, hpBarBorder, fillWidth, hpBarHeight, color
+                hpBarBorder, barY + hpBarBorder, fillWidth, hpBarHeight, color
             );
         }
+        this.bitmap.drawText(
+            this._hp + ' / ' + this._maxHp,
+            barOuterWidth + hpBarTextGap,
+            0,
+            hpBarTextWidth,
+            hpBarBitmapHeight,
+            'left'
+        );
     };
 
     Sprite_FoglandsHpBar.prototype.updatePosition = function() {
