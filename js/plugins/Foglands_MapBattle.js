@@ -45,6 +45,8 @@
  *   self-buffs pulse blue and play Heal1 at pitch 140.
  * - The hero and every instantiated enemy have HP bars and current/max HP
  *   numbers above their map sprites; both follow choreography and timeline state.
+ * - Characters whose HP reaches zero dissolve over 30 frames and remain
+ *   hidden for the rest of battle playback.
  * - After playback, the player returns to the origin map and the pre-battle
  *   player/follower formation is restored.
  *
@@ -67,6 +69,7 @@
     var buffGlowFrames = 24;
     var attackLungeDistance = 18;
     var hitRecoilDistance = 10;
+    var defeatDissolveFrames = 30;
     var hpBarWidth = 52;
     var hpBarHeight = 7;
     var hpBarBorder = 2;
@@ -237,6 +240,7 @@
         if (!target) return;
         this.x = target.x;
         this.y = target.y - (target.height || 48) - hpBarHeadGap;
+        this.opacity = target.opacity == null ? 255 : target.opacity;
         this.visible = target.visible !== false &&
             (target.opacity == null || target.opacity > 0);
     };
@@ -467,6 +471,7 @@
                 animationNextIndex: 0,
                 valuePopupPending: false,
                 choreographyPending: false,
+                defeatPending: false,
                 actionPending: false,
                 pauseFrames: -1
             },
@@ -666,6 +671,11 @@
 
     FoglandsMapBattle.updateCombatHpBars = function() {
         (FoglandsMapBattle._combatHpBars || []).forEach(function(entry) {
+            var characterSprite = entry.sprite._characterSprite;
+            if (entry.sprite._hp <= 0 &&
+                    !FoglandsMapBattle.isSpriteDefeatDissolving(characterSprite)) {
+                characterSprite.opacity = 0;
+            }
             entry.sprite.updatePosition();
         });
     };
@@ -762,6 +772,61 @@
         FoglandsMapBattle._timelineChoreography = null;
     };
 
+    FoglandsMapBattle.startTimelineDefeatDissolves = function(event) {
+        var motions = (event && event.defeats || []).map(function(targetRef) {
+            var sprite = FoglandsMapBattle.timelineCharacterSprite(targetRef);
+            if (!sprite) return null;
+            return {
+                sprite: sprite,
+                startOpacity: sprite.opacity == null ? 255 : sprite.opacity
+            };
+        }).filter(function(motion) {
+            return !!motion;
+        });
+        if (!motions.length) return false;
+
+        FoglandsMapBattle._timelineDefeatDissolves = {
+            motions: motions,
+            elapsed: 0,
+            duration: defeatDissolveFrames
+        };
+        return true;
+    };
+
+    FoglandsMapBattle.updateTimelineDefeatDissolves = function() {
+        var dissolve = FoglandsMapBattle._timelineDefeatDissolves;
+        if (!dissolve) return false;
+
+        dissolve.elapsed++;
+        var progress = Math.min(1, dissolve.elapsed / dissolve.duration);
+        dissolve.motions.forEach(function(motion) {
+            motion.sprite.opacity = Math.round(motion.startOpacity * (1 - progress));
+        });
+        if (dissolve.elapsed < dissolve.duration) return true;
+        dissolve.motions.forEach(function(motion) {
+            motion.sprite.opacity = 0;
+        });
+        FoglandsMapBattle._timelineDefeatDissolves = null;
+        return false;
+    };
+
+    FoglandsMapBattle.isSpriteDefeatDissolving = function(sprite) {
+        var dissolve = FoglandsMapBattle._timelineDefeatDissolves;
+        return !!(dissolve && dissolve.motions.some(function(motion) {
+            return motion.sprite === sprite;
+        }));
+    };
+
+    FoglandsMapBattle.clearTimelineDefeatDissolves = function() {
+        var dissolve = FoglandsMapBattle._timelineDefeatDissolves;
+        if (dissolve) {
+            dissolve.motions.forEach(function(motion) {
+                motion.sprite.opacity = 0;
+            });
+        }
+        FoglandsMapBattle._timelineDefeatDissolves = null;
+    };
+
     FoglandsMapBattle.startTimelineAnimation = function(event) {
         var animation = event && event.animation;
         var animationId = Number(animation && animation.animationId || 0);
@@ -835,7 +900,8 @@
 
     FoglandsMapBattle.isTimelineActionEvent = function(event) {
         return !!(FoglandsMapBattle.timelineActionLabel(event) ||
-            event && (event.animation || event.hpChange || event.choreography));
+            event && (event.animation || event.hpChange || event.choreography ||
+                event.defeats && event.defeats.length));
     };
 
     FoglandsMapBattle.updateCombatTimeline = function() {
@@ -852,7 +918,8 @@
         }
 
         if (playback.actionPending || playback.animationPending ||
-                playback.valuePopupPending || playback.choreographyPending) {
+                playback.valuePopupPending || playback.choreographyPending ||
+                playback.defeatPending) {
             var animatedEvent = timeline[playback.animationEventIndex];
             var animationTarget = FoglandsMapBattle.timelineAnimationTarget(
                 animatedEvent && animatedEvent.animation
@@ -878,6 +945,13 @@
                     presentationPlaying = true;
                 } else {
                     playback.choreographyPending = false;
+                }
+            }
+            if (playback.defeatPending) {
+                if (FoglandsMapBattle.updateTimelineDefeatDissolves()) {
+                    presentationPlaying = true;
+                } else {
+                    playback.defeatPending = false;
                 }
             }
             if (presentationPlaying) return;
@@ -919,6 +993,8 @@
             playback.valuePopupPending = FoglandsMapBattle.startTimelineHpChange(actionEvent);
             playback.choreographyPending =
                 FoglandsMapBattle.startTimelineChoreography(actionEvent);
+            playback.defeatPending =
+                FoglandsMapBattle.startTimelineDefeatDissolves(actionEvent);
             FoglandsMapBattle.startTimelineActionLabel(actionEvent);
             playback.actionPending = true;
             playback.animationEventIndex = eventIndex;
@@ -930,6 +1006,7 @@
         if (playback.index >= timeline.length) {
             FoglandsMapBattle.clearTimelineActionLabel();
             FoglandsMapBattle.clearTimelineChoreography();
+            FoglandsMapBattle.clearTimelineDefeatDissolves();
             FoglandsMapBattle.applyCombatOutcome();
         }
     };

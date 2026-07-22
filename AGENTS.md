@@ -38,6 +38,7 @@ Current behavior:
 - Plays configured action animations and signed HP-change popups, then waits 30 frames before advancing to the next action.
 - Adds sprite-only attack lunges, hit recoil/red pulses, and self-buff blue pulses without changing map coordinates.
 - Displays timeline-synchronized HP bars and current/max HP numbers above the hero and each instantiated enemy map sprite.
+- Dissolves newly defeated hero/enemy sprites over 30 frames and keeps them hidden for the rest of playback.
 - Applies the final hero HP once, reserves transfer to the origin map, and restores the pre-battle player/follower formation after transfer.
 
 Current battle context shape:
@@ -103,6 +104,7 @@ $gameSystem._foglandsMapBattle.combat = {
         animationNextIndex: Number,
         valuePopupPending: Boolean,
         choreographyPending: Boolean,
+        defeatPending: Boolean,
         actionPending: Boolean,
         pauseFrames: Number
     },
@@ -136,6 +138,7 @@ Current rules:
 - Adds serializable animation metadata to card-effect and enemy-attack timeline events.
 - Adds serializable signed `hpChange` metadata to damage, healing, poison tick, enemy attack, and thorn-reflection events.
 - Adds serializable `choreography` metadata for attacks, hit reactions, and friendly self-buffs.
+- Adds serializable `defeats` metadata exactly when a hero or enemy changes from positive HP to zero HP.
 - Does not access `$gameSystem`, `$gameMap`, scenes, windows, or sprites.
 - Does not retain combat state between calls.
 
@@ -249,6 +252,22 @@ They play `Heal1` once with `volume: 90`, `pitch: 140`, and `pan: 0`.
 Choreography changes only `Sprite_Character` display coordinates and blend
 color; it must restore both after completion and must not move map characters.
 
+New defeat transitions use:
+
+```js
+defeats: [{
+    targetType: "hero" | "enemy",
+    targetId: Number
+}]
+```
+
+The renderer fades each defeated `Sprite_Character` from its current opacity to
+zero over 30 frames. This runs alongside the action animation, HP popup, and
+choreography. The map character's authoritative opacity is not changed. Since
+MV refreshes sprite opacity from the character each frame, the 0-HP HP-bar
+state enforces zero sprite opacity after the dissolve completes and after scene
+recreation. A new map scene restores normal opacity automatically.
+
 ### Map HP Bars
 
 `Foglands_MapBattle` creates one world-space HP bar for the hero and one for
@@ -266,7 +285,8 @@ Current visual rules:
 - Follows the final `Sprite_Character` position every frame, including lunge
   and recoil offsets.
 - Green above 50%, yellow above 25%, and red at 25% or below.
-- Remains visible as an empty bar at 0 HP until battle playback finishes.
+- Fades with its character during the 30-frame defeat dissolve and is hidden at
+  0 HP for the rest of battle playback.
 
 Initial values come from `combat.input`. Each action applies its serialized
 timeline `state` snapshot before presentation begins. On scene recreation or
@@ -537,6 +557,7 @@ Post-battle actions are expected to include:
 - Attackers lunge 18 pixels toward their targets; hit targets recoil 10 pixels and pulse red before both sprites return to their map positions.
 - Friendly self-buffs remain stationary, pulse blue for 24 frames, and play `Heal1` at pitch 140.
 - The hero and every instantiated enemy have a compact HP bar with current/max HP text above their head; bars follow choreography and serialized timeline HP.
+- A character newly reduced to 0 HP and its HP bar dissolve over 30 frames, then remain hidden until battle playback ends.
 - Playback waits another 30 frames after choreography, the action animation, and the HP popup finish before advancing.
 - Final hero HP is applied once and guarded by `outcomeApplied`.
 - Player position/direction and visible follower positions/directions are captured before battle transfer.
@@ -982,14 +1003,15 @@ if (curses >= 3) ids = ids.filter(i => i !== "brand");
 
 ### 11. Battle Viewing UX And Result Branching
 
-**Status: Partial.** Per-event side labels, sprite choreography, map animations, signed HP popups, per-character HP bars, fixed pauses, final HP application, and origin formation restoration work. Custom viewing controls and post-battle review/reward branches are missing.
+**Status: Partial.** Per-event side labels, sprite choreography, map animations, signed HP popups, per-character HP bars, defeat dissolves, fixed pauses, final HP application, and origin formation restoration work. Custom viewing controls and post-battle review/reward branches are missing.
 
 The MV implementation presents action-bearing timeline events without the MV
 message window. Friendly action names appear at bottom-left and enemy action
 names at bottom-right. Each action can play a map animation and signed HP popup,
 plus attack/recoil or buff-glow choreography, then holds for 30 frames before
 the next action. Hero and enemy HP bars follow those sprites and update from
-timeline snapshots. Non-action events such as turn start and draw remain in the
+timeline snapshots. Characters newly reduced to 0 HP dissolve with their bars
+and remain hidden. Non-action events such as turn start and draw remain in the
 timeline but are not currently rendered. A broader status HUD, speed controls,
 and instant completion remain pending.
 

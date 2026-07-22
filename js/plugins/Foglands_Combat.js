@@ -223,10 +223,29 @@
 
         function pushEvent(type, data) {
             var event = data || {};
+            var previousState = timeline.length ? timeline[timeline.length - 1].state : null;
             event.sequence = timeline.length;
             event.turn = turnNumber;
             event.type = type;
             event.state = snapshot(hero, enemies, turnBlock, permanentBlock);
+            if (previousState) {
+                var defeats = [];
+                if (previousState.hero.hp > 0 && event.state.hero.hp <= 0) {
+                    defeats.push({ targetType: 'hero', targetId: hero.actorId });
+                }
+                event.state.enemies.forEach(function(enemyState) {
+                    var previousEnemy = previousState.enemies.filter(function(item) {
+                        return item.instanceId === enemyState.instanceId;
+                    })[0];
+                    if (previousEnemy && previousEnemy.hp > 0 && enemyState.hp <= 0) {
+                        defeats.push({
+                            targetType: 'enemy',
+                            targetId: enemyState.instanceId
+                        });
+                    }
+                });
+                if (defeats.length) event.defeats = defeats;
+            }
             timeline.push(event);
         }
 
