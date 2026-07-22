@@ -41,11 +41,12 @@
  *   at bottom-right, both with 50-pixel edge margins and no message window.
  * - Action animations and HP popups play before a 30-frame pause advances to
  *   the next action.
+ * - Attackers lunge toward targets, hit targets recoil with a red pulse, and
+ *   self-buffs pulse blue and play Heal1 at pitch 140.
  * - After playback, the player returns to the origin map and the pre-battle
  *   player/follower formation is restored.
  *
- * Movement choreography, custom battle HUD, and post-battle accusation are
- * not implemented yet.
+ * A custom battle HUD and post-battle accusation are not implemented yet.
  */
 
 (function() {
@@ -60,6 +61,10 @@
     var hpPopupRise = 28;
     var actionPauseFrames = 30;
     var actionLabelMargin = 50;
+    var attackMotionFrames = 18;
+    var buffGlowFrames = 24;
+    var attackLungeDistance = 18;
+    var hitRecoilDistance = 10;
 
     function Sprite_FoglandsHpChange() {
         this.initialize.apply(this, arguments);
@@ -377,6 +382,7 @@
                 animationEventIndex: -1,
                 animationNextIndex: 0,
                 valuePopupPending: false,
+                choreographyPending: false,
                 actionPending: false,
                 pauseFrames: -1
             },
@@ -458,6 +464,107 @@
         return null;
     };
 
+    FoglandsMapBattle.timelineCharacterSprite = function(targetRef) {
+        var character = FoglandsMapBattle.timelineAnimationTarget(targetRef);
+        var scene = SceneManager._scene;
+        var sprites = scene && scene._spriteset && scene._spriteset._characterSprites || [];
+        return sprites.filter(function(sprite) {
+            return sprite && sprite._character === character;
+        })[0] || null;
+    };
+
+    FoglandsMapBattle.setChoreographyPosition = function(sprite, offsetX, offsetY) {
+        if (!sprite || !sprite._character) return;
+        sprite.x = sprite._character.screenX() + offsetX;
+        sprite.y = sprite._character.screenY() + offsetY;
+    };
+
+    FoglandsMapBattle.resetChoreographySprite = function(sprite) {
+        if (!sprite) return;
+        FoglandsMapBattle.setChoreographyPosition(sprite, 0, 0);
+        if (sprite.setBlendColor) sprite.setBlendColor([0, 0, 0, 0]);
+    };
+
+    FoglandsMapBattle.startTimelineChoreography = function(event) {
+        var data = event && event.choreography;
+        if (!data) return false;
+
+        var sourceSprite = data.source ?
+            FoglandsMapBattle.timelineCharacterSprite(data.source) : null;
+        var targetSprite = data.target ?
+            FoglandsMapBattle.timelineCharacterSprite(data.target) : null;
+        if (data.type === 'attack' && (!sourceSprite || !targetSprite)) return false;
+        if ((data.type === 'hit' || data.type === 'buff') && !targetSprite) return false;
+
+        if (data.se && data.se.name) AudioManager.playSe(data.se);
+        FoglandsMapBattle._timelineChoreography = {
+            data: data,
+            sourceSprite: sourceSprite,
+            targetSprite: targetSprite,
+            elapsed: 0,
+            duration: data.type === 'buff' ? buffGlowFrames : attackMotionFrames
+        };
+        return true;
+    };
+
+    FoglandsMapBattle.updateTimelineChoreography = function() {
+        var motion = FoglandsMapBattle._timelineChoreography;
+        if (!motion) return false;
+
+        motion.elapsed++;
+        var progress = Math.min(1, motion.elapsed / motion.duration);
+        var pulse = Math.sin(Math.PI * progress);
+        var data = motion.data;
+
+        if (data.type === 'attack') {
+            var source = motion.sourceSprite._character;
+            var target = motion.targetSprite._character;
+            var dx = target.screenX() - source.screenX();
+            var dy = target.screenY() - source.screenY();
+            var length = Math.sqrt(dx * dx + dy * dy) || 1;
+            var unitX = dx / length;
+            var unitY = dy / length;
+            FoglandsMapBattle.setChoreographyPosition(
+                motion.sourceSprite,
+                unitX * attackLungeDistance * pulse,
+                unitY * attackLungeDistance * pulse
+            );
+            if (data.hit) {
+                FoglandsMapBattle.setChoreographyPosition(
+                    motion.targetSprite,
+                    unitX * hitRecoilDistance * pulse,
+                    unitY * hitRecoilDistance * pulse
+                );
+                motion.targetSprite.setBlendColor([
+                    255, 48, 48, Math.round(160 * pulse)
+                ]);
+            }
+        } else if (data.type === 'hit') {
+            var fallbackX = data.target.targetType === 'hero' ? -1 : 1;
+            FoglandsMapBattle.setChoreographyPosition(
+                motion.targetSprite, fallbackX * hitRecoilDistance * pulse, 0
+            );
+            motion.targetSprite.setBlendColor([255, 48, 48, Math.round(160 * pulse)]);
+        } else if (data.type === 'buff') {
+            motion.targetSprite.setBlendColor([72, 156, 255, Math.round(150 * pulse)]);
+        }
+
+        if (motion.elapsed < motion.duration) return true;
+        FoglandsMapBattle.resetChoreographySprite(motion.sourceSprite);
+        FoglandsMapBattle.resetChoreographySprite(motion.targetSprite);
+        FoglandsMapBattle._timelineChoreography = null;
+        return false;
+    };
+
+    FoglandsMapBattle.clearTimelineChoreography = function() {
+        var motion = FoglandsMapBattle._timelineChoreography;
+        if (motion) {
+            FoglandsMapBattle.resetChoreographySprite(motion.sourceSprite);
+            FoglandsMapBattle.resetChoreographySprite(motion.targetSprite);
+        }
+        FoglandsMapBattle._timelineChoreography = null;
+    };
+
     FoglandsMapBattle.startTimelineAnimation = function(event) {
         var animation = event && event.animation;
         var animationId = Number(animation && animation.animationId || 0);
@@ -531,7 +638,7 @@
 
     FoglandsMapBattle.isTimelineActionEvent = function(event) {
         return !!(FoglandsMapBattle.timelineActionLabel(event) ||
-            event && (event.animation || event.hpChange));
+            event && (event.animation || event.hpChange || event.choreography));
     };
 
     FoglandsMapBattle.updateCombatTimeline = function() {
@@ -547,7 +654,8 @@
             playback.pending = false;
         }
 
-        if (playback.actionPending || playback.animationPending || playback.valuePopupPending) {
+        if (playback.actionPending || playback.animationPending ||
+                playback.valuePopupPending || playback.choreographyPending) {
             var animatedEvent = timeline[playback.animationEventIndex];
             var animationTarget = FoglandsMapBattle.timelineAnimationTarget(
                 animatedEvent && animatedEvent.animation
@@ -566,6 +674,13 @@
                     presentationPlaying = true;
                 } else {
                     playback.valuePopupPending = false;
+                }
+            }
+            if (playback.choreographyPending) {
+                if (FoglandsMapBattle.updateTimelineChoreography()) {
+                    presentationPlaying = true;
+                } else {
+                    playback.choreographyPending = false;
                 }
             }
             if (presentationPlaying) return;
@@ -604,6 +719,8 @@
 
             playback.animationPending = FoglandsMapBattle.startTimelineAnimation(actionEvent);
             playback.valuePopupPending = FoglandsMapBattle.startTimelineHpChange(actionEvent);
+            playback.choreographyPending =
+                FoglandsMapBattle.startTimelineChoreography(actionEvent);
             FoglandsMapBattle.startTimelineActionLabel(actionEvent);
             playback.actionPending = true;
             playback.animationEventIndex = eventIndex;
@@ -614,6 +731,7 @@
 
         if (playback.index >= timeline.length) {
             FoglandsMapBattle.clearTimelineActionLabel();
+            FoglandsMapBattle.clearTimelineChoreography();
             FoglandsMapBattle.applyCombatOutcome();
         }
     };

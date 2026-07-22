@@ -259,13 +259,61 @@
             };
         }
 
+        function combatantRef(targetType, target) {
+            return {
+                targetType: targetType,
+                targetId: targetType === 'enemy' ? (target ? target.instanceId : 0) : hero.actorId
+            };
+        }
+
+        function choreographyRef(type, source, targetType, target) {
+            var buffTypes = {
+                block: true,
+                blockRetain: true,
+                blockPermanent: true,
+                heal: true,
+                drawNext: true,
+                probabilityNext: true
+            };
+            if (buffTypes[type]) {
+                return {
+                    type: 'buff',
+                    target: combatantRef(targetType, target),
+                    glow: 'blue',
+                    se: { name: 'Heal1', volume: 90, pitch: 140, pan: 0 }
+                };
+            }
+            if (type === 'selfDamage') {
+                return {
+                    type: 'hit',
+                    target: combatantRef(targetType, target),
+                    glow: 'red'
+                };
+            }
+            if (type === 'damage' || type === 'poisonApplied' ||
+                    type === 'poisonDoubled' || type === 'cardMiss' ||
+                    type === 'enemyAttack') {
+                var sourceType = source.displaySide === 'right' ? 'enemy' : 'hero';
+                return {
+                    type: 'attack',
+                    source: combatantRef(sourceType, sourceType === 'enemy' ? source : hero),
+                    target: combatantRef(targetType, target),
+                    hit: type !== 'cardMiss',
+                    glow: type !== 'cardMiss' ? 'red' : null
+                };
+            }
+            return null;
+        }
+
         function pushActionEvent(type, data, source, targetType, target, hpChange) {
             var animation = animationRef(source, targetType, target);
             var change = hpChangeRef(hpChange, targetType, target);
             var label = actionLabelRef(source);
+            var choreography = choreographyRef(type, source, targetType, target);
             if (animation) data.animation = animation;
             if (change) data.hpChange = change;
             if (label) data.actionLabel = label;
+            if (choreography) data.choreography = choreography;
             pushEvent(type, data);
         }
 
@@ -274,6 +322,11 @@
             var label = actionLabelRef(source);
             if (change) data.hpChange = change;
             if (label) data.actionLabel = label;
+            data.choreography = {
+                type: 'hit',
+                target: combatantRef(targetType, target),
+                glow: 'red'
+            };
             pushEvent(type, data);
         }
 

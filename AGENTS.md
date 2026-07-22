@@ -36,6 +36,7 @@ Current behavior:
 - Calls the pure combat resolver once and stores its complete result in save-backed state.
 - Shows player/card and friendly-buff action names at bottom-left and enemy action names at bottom-right without using MV's message window.
 - Plays configured action animations and signed HP-change popups, then waits 30 frames before advancing to the next action.
+- Adds sprite-only attack lunges, hit recoil/red pulses, and self-buff blue pulses without changing map coordinates.
 - Applies the final hero HP once, reserves transfer to the origin map, and restores the pre-battle player/follower formation after transfer.
 
 Current battle context shape:
@@ -100,6 +101,7 @@ $gameSystem._foglandsMapBattle.combat = {
         animationEventIndex: Number,
         animationNextIndex: Number,
         valuePopupPending: Boolean,
+        choreographyPending: Boolean,
         actionPending: Boolean,
         pauseFrames: Number
     },
@@ -132,6 +134,7 @@ Current rules:
 - Returns structured `outcome`, `finalState`, `stats`, and `timeline` data.
 - Adds serializable animation metadata to card-effect and enemy-attack timeline events.
 - Adds serializable signed `hpChange` metadata to damage, healing, poison tick, enemy attack, and thorn-reflection events.
+- Adds serializable `choreography` metadata for attacks, hit reactions, and friendly self-buffs.
 - Does not access `$gameSystem`, `$gameMap`, scenes, windows, or sprites.
 - Does not retain combat state between calls.
 
@@ -218,6 +221,32 @@ actionLabel: {
 
 Cards and future friendly companion buffs default to `left`; enemies default
 to `right`.
+
+Movement, glow, and buff sound presentation use:
+
+```js
+choreography: {
+    type: "attack" | "hit" | "buff",
+    source: { targetType: "hero" | "enemy", targetId: Number },
+    target: { targetType: "hero" | "enemy", targetId: Number },
+    hit: Boolean,
+    glow: "red" | "blue",
+    se: { name: String, volume: Number, pitch: Number, pan: Number }
+}
+```
+
+Fields not relevant to a choreography type may be omitted. Attack motion lasts
+18 frames: the source moves up to 18 pixels toward the target and returns. A
+hit target moves up to 10 pixels away from the source, returns, and receives a
+red blend pulse. Hit-only effects such as poison tick, thorn reflection, and
+self-damage use the same recoil/red pulse without a source lunge. A missed card
+lunges but does not recoil or tint the target.
+
+Friendly self-buffs, including block, healing, retained/permanent block, draw,
+and probability buffs, stay in place and receive a 24-frame blue blend pulse.
+They play `Heal1` once with `volume: 90`, `pitch: 140`, and `pan: 0`.
+Choreography changes only `Sprite_Character` display coordinates and blend
+color; it must restore both after completion and must not move map characters.
 
 Events that change HP may also carry the presentation-independent field:
 
@@ -434,7 +463,7 @@ Map battle trigger
 -> populate enemy slot events from troop members
 -> choose cards / deck / hand
 -> resolve top-view battle
--> play action labels, map animations, and HP popups with 30-frame pauses
+-> play action labels, sprite choreography, map animations, and HP popups with 30-frame pauses
 -> apply final hero HP
 -> reserve return transfer
 -> restore player/follower formation on the origin map
@@ -479,7 +508,9 @@ Post-battle actions are expected to include:
 - The battle playback path does not call MV's message window.
 - Card effects and enemy attacks play their configured map-character animations one event at a time.
 - Signed HP changes appear above the affected map character, rise a short distance, and fade over 30 frames.
-- Playback waits another 30 frames after the action animation and HP popup finish before advancing.
+- Attackers lunge 18 pixels toward their targets; hit targets recoil 10 pixels and pulse red before both sprites return to their map positions.
+- Friendly self-buffs remain stationary, pulse blue for 24 frames, and play `Heal1` at pitch 140.
+- Playback waits another 30 frames after choreography, the action animation, and the HP popup finish before advancing.
 - Final hero HP is applied once and guarded by `outcomeApplied`.
 - Player position/direction and visible follower positions/directions are captured before battle transfer.
 - Origin transfer keeps the battle context until destination-map formation restoration completes.
@@ -488,7 +519,7 @@ Post-battle actions are expected to include:
 
 ### Partial
 
-- Battle presentation works as one label/animation/HP-popup/pause step per action event, but has no HUD, movement choreography, speed controls, or instant completion.
+- Battle presentation works as one label/choreography/animation/HP-popup/pause step per action event, but has no HUD, speed controls, or instant completion.
 - Victory/defeat/timeout are calculated and return transfer is connected, but no result review screen or custom outcome branch exists.
 - `canLose` now controls defeat revival before return; `canEscape` still has no custom escape behavior.
 - MV Battle Processing branches are not integrated with the custom result; `command301` currently assigns its branch value at encounter start.
@@ -642,7 +673,8 @@ function rewardOffer(pity) {
 
 The first MV implementation now resolves the automatic battle and is capped at
 28 turns. It returns structured timeline events; MapBattle currently presents
-action-bearing events with side labels, animations, HP popups, and fixed pauses.
+action-bearing events with side labels, sprite choreography, animations, HP
+popups, and fixed pauses.
 
 Prototype rules:
 
@@ -923,14 +955,15 @@ if (curses >= 3) ids = ids.filter(i => i !== "brand");
 
 ### 11. Battle Viewing UX And Result Branching
 
-**Status: Partial.** Per-event side labels, map animations, signed HP popups, fixed pauses, final HP application, and origin formation restoration work. Custom viewing controls and post-battle review/reward branches are missing.
+**Status: Partial.** Per-event side labels, sprite choreography, map animations, signed HP popups, fixed pauses, final HP application, and origin formation restoration work. Custom viewing controls and post-battle review/reward branches are missing.
 
 The MV implementation presents action-bearing timeline events without the MV
 message window. Friendly action names appear at bottom-left and enemy action
 names at bottom-right. Each action can play a map animation and signed HP popup,
-then holds for 30 frames before the next action. Non-action events such as turn
-start and draw remain in the timeline but are not currently rendered. Custom
-HUD, speed controls, and instant completion remain pending.
+plus attack/recoil or buff-glow choreography, then holds for 30 frames before
+the next action. Non-action events such as turn start and draw remain in the
+timeline but are not currently rendered. Custom HUD, speed controls, and
+instant completion remain pending.
 
 Prototype UX:
 
