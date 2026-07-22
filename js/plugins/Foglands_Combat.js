@@ -49,6 +49,7 @@
             name: String(source.name || ''),
             category: String(source.category || 'skill'),
             tier: String(source.tier || 'common'),
+            animationId: Math.max(0, Number(source.animationId || 0)),
             successRate: Number(source.successRate == null ? 100 : source.successRate),
             upgraded: !!source.upgraded,
             effects: copyEffects(source.effects)
@@ -120,6 +121,7 @@
             hp: clamp(Number(source.hp == null ? maxHp : source.hp), 0, maxHp),
             maxHp: maxHp,
             attack: Math.max(0, Number(source.attack || 0)),
+            animationId: Math.max(0, Number(source.animationId || 0)),
             poison: Math.max(0, Number(source.poison || 0)),
             defeated: false
         };
@@ -223,6 +225,40 @@
             timeline.push(event);
         }
 
+        function animationRef(source, targetType, target) {
+            var animationId = Math.max(0, Number(source && source.animationId || 0));
+            if (!animationId) return null;
+            return {
+                animationId: animationId,
+                targetType: targetType,
+                targetId: targetType === 'enemy' ? (target ? target.instanceId : 0) : hero.actorId
+            };
+        }
+
+        function hpChangeRef(amount, targetType, target) {
+            amount = Number(amount || 0);
+            if (!amount) return null;
+            return {
+                amount: amount,
+                targetType: targetType,
+                targetId: targetType === 'enemy' ? (target ? target.instanceId : 0) : hero.actorId
+            };
+        }
+
+        function pushActionEvent(type, data, source, targetType, target, hpChange) {
+            var animation = animationRef(source, targetType, target);
+            var change = hpChangeRef(hpChange, targetType, target);
+            if (animation) data.animation = animation;
+            if (change) data.hpChange = change;
+            pushEvent(type, data);
+        }
+
+        function pushHpChangeEvent(type, data, amount, targetType, target) {
+            var change = hpChangeRef(amount, targetType, target);
+            if (change) data.hpChange = change;
+            pushEvent(type, data);
+        }
+
         function reshuffle() {
             pile = random.shuffle(discard);
             discard = [];
@@ -249,6 +285,7 @@
                 name: card.name,
                 category: card.category,
                 tier: card.tier,
+                animationId: card.animationId,
                 upgraded: card.upgraded
             };
         }
@@ -281,68 +318,78 @@
                     }
                     target.hp -= amount;
                     stats.atkHits++;
-                    pushEvent('damage', {
+                    pushActionEvent('damage', {
                         card: cardRef(card),
                         target: enemyRef(target),
                         amount: amount,
                         hit: hitIndex + 1,
                         hits: hitCount
-                    });
+                    }, card, 'enemy', target, -amount);
                     if (lifesteal && amount > 0) {
                         var healed = Math.min(hero.maxHp - hero.hp,
                             Math.floor(amount * Number(lifesteal.rate || 0.5)));
                         hero.hp += healed;
-                        pushEvent('heal', { card: cardRef(card), amount: healed, source: 'lifesteal' });
+                        pushActionEvent('heal', {
+                            card: cardRef(card), amount: healed, source: 'lifesteal'
+                        }, card, 'hero', hero, healed);
                     }
                 } else if (effect.code === 'block') {
                     amount = Math.max(0, Number(effect.value || 0));
                     turnBlock += amount;
-                    pushEvent('block', { card: cardRef(card), amount: amount });
+                    pushActionEvent('block', { card: cardRef(card), amount: amount }, card, 'hero', hero);
                 } else if (effect.code === 'blockRetain') {
                     amount = Math.max(0, Number(effect.value || 0));
                     turnBlock += amount;
                     retainNext += amount;
-                    pushEvent('blockRetain', { card: cardRef(card), amount: amount });
+                    pushActionEvent('blockRetain', {
+                        card: cardRef(card), amount: amount
+                    }, card, 'hero', hero);
                 } else if (effect.code === 'blockPerm') {
                     var cap = Math.max(0, Number(effect.cap || 0));
                     var before = permanentBlock;
                     permanentBlock = Math.min(cap, permanentBlock + Math.max(0, Number(effect.value || 0)));
-                    pushEvent('blockPermanent', {
+                    pushActionEvent('blockPermanent', {
                         card: cardRef(card),
                         amount: permanentBlock - before,
                         total: permanentBlock,
                         cap: cap
-                    });
+                    }, card, 'hero', hero);
                 } else if (effect.code === 'heal') {
                     amount = Math.min(hero.maxHp - hero.hp, Math.max(0, Number(effect.value || 0)));
                     hero.hp += amount;
-                    pushEvent('heal', { card: cardRef(card), amount: amount, source: 'card' });
+                    pushActionEvent('heal', {
+                        card: cardRef(card), amount: amount, source: 'card'
+                    }, card, 'hero', hero, amount);
                 } else if (effect.code === 'poison' && target && target.hp > 0) {
                     amount = Math.max(0, Number(effect.value || 0));
                     target.poison += amount;
-                    pushEvent('poisonApplied', {
+                    pushActionEvent('poisonApplied', {
                         card: cardRef(card),
                         target: enemyRef(target),
                         amount: amount,
                         total: target.poison
-                    });
+                    }, card, 'enemy', target);
                 } else if (effect.code === 'poisonDouble' && target && target.hp > 0) {
                     var oldPoison = target.poison;
                     target.poison *= 2;
-                    pushEvent('poisonDoubled', {
+                    pushActionEvent('poisonDoubled', {
                         card: cardRef(card),
                         target: enemyRef(target),
                         before: oldPoison,
                         total: target.poison
-                    });
+                    }, card, 'enemy', target);
                 } else if (effect.code === 'drawNext') {
                     amount = Math.max(0, Number(effect.value || 0));
                     pendingDraw += amount;
-                    pushEvent('drawNext', { card: cardRef(card), amount: amount });
+                    pushActionEvent('drawNext', {
+                        card: cardRef(card), amount: amount
+                    }, card, 'hero', hero);
                 } else if (effect.code === 'probNext') {
                     amount = Math.max(0, Number(effect.value || 0));
                     pendingProbability = amount;
-                    pushEvent('probabilityNext', { card: cardRef(card), amount: amount });
+                    pushActionEvent('probabilityNext', {
+                        card: cardRef(card), amount: amount
+                    }, card, 'hero', hero);
                 }
             });
         }
@@ -414,7 +461,9 @@
                     if (selfDamage) {
                         var selfAmount = Math.max(0, Number(selfDamage.value || 0));
                         hero.hp -= selfAmount;
-                        pushEvent('selfDamage', { card: cardRef(card), amount: selfAmount });
+                        pushActionEvent('selfDamage', {
+                            card: cardRef(card), amount: selfAmount
+                        }, card, 'hero', hero, -selfAmount);
                         if (hero.hp <= 0) {
                             reason = 'heroDefeated';
                             break;
@@ -435,13 +484,13 @@
                         addCategoryAttempt(card.category, success);
 
                         if (!success) {
-                            pushEvent('cardMiss', {
+                            pushActionEvent('cardMiss', {
                                 card: cardRef(card),
                                 target: enemyRef(target),
                                 hit: hitIndex + 1,
                                 hits: hitCount,
                                 probability: { effective: effectiveRate, roll: roll }
-                            });
+                            }, card, 'enemy', target);
                             continue;
                         }
 
@@ -470,10 +519,10 @@
                 enemies.forEach(function(enemy) {
                     if (enemy.hp > 0 && enemy.poison > 0) {
                         enemy.hp -= enemy.poison;
-                        pushEvent('poisonTick', {
+                        pushHpChangeEvent('poisonTick', {
                             target: enemyRef(enemy),
                             amount: enemy.poison
-                        });
+                        }, -enemy.poison, 'enemy', enemy);
                     }
                 });
 
@@ -491,19 +540,19 @@
                     var block = turnBlock + permanentBlock;
                     var taken = Math.max(0, attack - block);
                     hero.hp -= taken;
-                    pushEvent('enemyAttack', {
+                    pushActionEvent('enemyAttack', {
                         source: enemyRef(attacker),
                         attack: attack,
                         block: block,
                         damage: taken
-                    });
+                    }, attacker, 'hero', hero, -taken);
 
                     if (thorn > 0 && attacker.hp > 0) {
                         attacker.hp -= thorn;
-                        pushEvent('thornDamage', {
+                        pushHpChangeEvent('thornDamage', {
                             target: enemyRef(attacker),
                             amount: thorn
-                        });
+                        }, -thorn, 'enemy', attacker);
                     }
 
                     if (hero.hp <= 0) {

@@ -37,11 +37,14 @@
  *   battle deck on the saved battle context.
  * - The combat phase calls FoglandsCombat.resolve() once and stores its
  *   serializable result on the battle context.
- * - Timeline events are shown through RPG Maker MV's default message window.
+ * - Each displayable timeline event is shown in its own RPG Maker MV message.
+ * - Action animations play on the map character targeted by each timeline
+ *   event before that event's message opens.
  * - After playback, the player returns to the origin map and the pre-battle
  *   player/follower formation is restored.
  *
- * Visual battle animations and post-battle accusation are not implemented yet.
+ * Movement choreography, custom battle HUD, and post-battle accusation are
+ * not implemented yet.
  */
 
 (function() {
@@ -52,6 +55,75 @@
     var battleMapId = Number(params['Battle Map Id'] || 2);
     var battleX = Number(params['Battle X'] || 8);
     var battleY = Number(params['Battle Y'] || 6);
+    var hpPopupDuration = 30;
+    var hpPopupRise = 28;
+
+    function Sprite_FoglandsHpChange() {
+        this.initialize.apply(this, arguments);
+    }
+
+    Sprite_FoglandsHpChange.prototype = Object.create(Sprite.prototype);
+    Sprite_FoglandsHpChange.prototype.constructor = Sprite_FoglandsHpChange;
+
+    Sprite_FoglandsHpChange.prototype.initialize = function(character, amount) {
+        Sprite.prototype.initialize.call(this);
+        this._character = character;
+        this._amount = Number(amount || 0);
+        this._elapsed = 0;
+        this._duration = hpPopupDuration;
+        this.bitmap = new Bitmap(160, 64);
+        this.anchor.x = 0.5;
+        this.anchor.y = 0.5;
+        this.z = 9;
+        this.drawValue();
+        this.updatePosition();
+    };
+
+    Sprite_FoglandsHpChange.prototype.drawValue = function() {
+        var context = this.bitmap._context;
+        var text = (this._amount > 0 ? '+' : '-') + Math.abs(this._amount);
+        var gradient = context.createLinearGradient(0, 10, 0, 54);
+        if (this._amount > 0) {
+            gradient.addColorStop(0, '#ffffff');
+            gradient.addColorStop(1, '#63cfff');
+        } else {
+            gradient.addColorStop(0, '#ffffff');
+            gradient.addColorStop(1, '#f04444');
+        }
+
+        context.save();
+        context.font = 'bold 30px GameFont';
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.lineJoin = 'round';
+        context.strokeStyle = 'rgba(24, 20, 28, 0.9)';
+        context.lineWidth = 5;
+        context.strokeText(text, 80, 32);
+        context.fillStyle = gradient;
+        context.fillText(text, 80, 32);
+        context.restore();
+        this.bitmap._setDirty();
+    };
+
+    Sprite_FoglandsHpChange.prototype.updatePosition = function() {
+        var progress = Math.min(1, this._elapsed / this._duration);
+        this.x = this._character.screenX();
+        this.y = this._character.screenY() - 52 - hpPopupRise * progress;
+        this.opacity = Math.round(255 * (1 - progress * progress));
+    };
+
+    Sprite_FoglandsHpChange.prototype.update = function() {
+        Sprite.prototype.update.call(this);
+        this._elapsed++;
+        this.updatePosition();
+        if (this._elapsed >= this._duration && this.parent) {
+            this.parent.removeChild(this);
+        }
+    };
+
+    Sprite_FoglandsHpChange.prototype.isPlaying = function() {
+        return this._elapsed < this._duration && !!this.parent;
+    };
 
     window.FoglandsMapBattle = window.FoglandsMapBattle || {};
 
@@ -201,6 +273,7 @@
                 name: card.name,
                 category: card.category,
                 tier: card.tier,
+                animationId: Number(card.animationId || 0),
                 successRate: card.successRate,
                 effects: card.effects
             };
@@ -218,7 +291,8 @@
                 name: enemy.name,
                 hp: Number(enemy.params[0] || 1),
                 maxHp: Number(enemy.params[0] || 1),
-                attack: Number(enemy.params[2] || 0)
+                attack: Number(enemy.params[2] || 0),
+                animationId: FoglandsMapBattle.enemyAttackAnimation(enemy)
             };
         }).filter(function(enemy) {
             return !!enemy;
@@ -268,7 +342,11 @@
             playback: {
                 index: 0,
                 pending: false,
-                nextIndex: 0
+                nextIndex: 0,
+                animationPending: false,
+                animationEventIndex: -1,
+                animationNextIndex: 0,
+                valuePopupPending: false
             },
             outcomeApplied: false
         };
@@ -412,6 +490,58 @@
         FoglandsMapBattle.returnToOrigin();
     };
 
+    FoglandsMapBattle.timelineAnimationTarget = function(animation) {
+        if (!animation) return null;
+        if (animation.targetType === 'hero') return $gamePlayer;
+        if (animation.targetType === 'enemy') {
+            return FoglandsMapBattle.enemySlotEvents()[Number(animation.targetId) - 1] || null;
+        }
+        return null;
+    };
+
+    FoglandsMapBattle.startTimelineAnimation = function(event) {
+        var animation = event && event.animation;
+        var animationId = Number(animation && animation.animationId || 0);
+        if (!animationId || !$dataAnimations[animationId]) return false;
+
+        var target = FoglandsMapBattle.timelineAnimationTarget(animation);
+        if (!target || !target.requestAnimation) return false;
+        target.requestAnimation(animationId);
+        return true;
+    };
+
+    FoglandsMapBattle.startTimelineHpChange = function(event) {
+        var change = event && event.hpChange;
+        var amount = Number(change && change.amount || 0);
+        if (!amount) return false;
+
+        var target = FoglandsMapBattle.timelineAnimationTarget(change);
+        var scene = SceneManager._scene;
+        var spriteset = scene && scene._spriteset;
+        var container = spriteset && (spriteset._tilemap || spriteset);
+        if (!target || !target.screenX || !target.screenY || !container) return false;
+
+        var popup = new Sprite_FoglandsHpChange(target, amount);
+        container.addChild(popup);
+        FoglandsMapBattle._timelineHpPopup = popup;
+        return true;
+    };
+
+    FoglandsMapBattle.isTimelineHpChangePlaying = function() {
+        var popup = FoglandsMapBattle._timelineHpPopup;
+        if (popup && popup.isPlaying()) return true;
+        FoglandsMapBattle._timelineHpPopup = null;
+        return false;
+    };
+
+    FoglandsMapBattle.showTimelineMessage = function(playback, text, nextIndex) {
+        $gameMessage.setBackground(0);
+        $gameMessage.setPositionType(2);
+        $gameMessage.add(text);
+        playback.pending = true;
+        playback.nextIndex = nextIndex;
+    };
+
     FoglandsMapBattle.updateCombatTimeline = function() {
         var state = FoglandsMapBattle.current();
         var combat = state && state.phase === 'combat' && state.combat;
@@ -426,27 +556,65 @@
             playback.pending = false;
         }
 
+        if (playback.animationPending || playback.valuePopupPending) {
+            var animatedEvent = timeline[playback.animationEventIndex];
+            var animationTarget = FoglandsMapBattle.timelineAnimationTarget(
+                animatedEvent && animatedEvent.animation
+            );
+            var presentationPlaying = false;
+            if (playback.animationPending) {
+                if (animationTarget && animationTarget.isAnimationPlaying &&
+                        animationTarget.isAnimationPlaying()) {
+                    presentationPlaying = true;
+                } else {
+                    playback.animationPending = false;
+                }
+            }
+            if (playback.valuePopupPending) {
+                if (FoglandsMapBattle.isTimelineHpChangePlaying()) {
+                    presentationPlaying = true;
+                } else {
+                    playback.valuePopupPending = false;
+                }
+            }
+            if (presentationPlaying) return;
+
+            var animatedText = FoglandsMapBattle.formatTimelineEvent(animatedEvent);
+            if (animatedText) {
+                FoglandsMapBattle.showTimelineMessage(
+                    playback, animatedText, playback.animationNextIndex
+                );
+                return;
+            }
+            playback.index = playback.animationNextIndex;
+        }
+
         if (playback.index < timeline.length && !$gameMessage.isBusy()) {
             var cursor = playback.index;
-            var lines = [];
-            while (cursor < timeline.length && lines.length < 4) {
-                var text = FoglandsMapBattle.formatTimelineEvent(timeline[cursor]);
+            var messageText = null;
+            var eventIndex = -1;
+            while (cursor < timeline.length && !messageText) {
+                eventIndex = cursor;
+                messageText = FoglandsMapBattle.formatTimelineEvent(timeline[cursor]);
                 cursor++;
-                if (text) lines.push(text);
             }
 
-            if (!lines.length) {
+            if (!messageText) {
                 playback.index = cursor;
                 return;
             }
 
-            $gameMessage.setBackground(0);
-            $gameMessage.setPositionType(2);
-            lines.forEach(function(line) {
-                $gameMessage.add(line);
-            });
-            playback.pending = true;
-            playback.nextIndex = cursor;
+            var animationStarted = FoglandsMapBattle.startTimelineAnimation(timeline[eventIndex]);
+            var valuePopupStarted = FoglandsMapBattle.startTimelineHpChange(timeline[eventIndex]);
+            if (animationStarted || valuePopupStarted) {
+                playback.animationPending = animationStarted;
+                playback.valuePopupPending = valuePopupStarted;
+                playback.animationEventIndex = eventIndex;
+                playback.animationNextIndex = cursor;
+                return;
+            }
+
+            FoglandsMapBattle.showTimelineMessage(playback, messageText, cursor);
             return;
         }
 
@@ -531,6 +699,11 @@
             characterName: characterName,
             characterIndex: characterIndex
         };
+    };
+
+    FoglandsMapBattle.enemyAttackAnimation = function(enemy) {
+        var meta = enemy && enemy.meta || {};
+        return Math.max(0, Number(meta.FogAttackAnimation || meta.FogAnimation || 1));
     };
 
     FoglandsMapBattle.enemySlotEvents = function() {
