@@ -310,21 +310,21 @@
                 };
             }
             if (type === 'damage' || type === 'poisonApplied' ||
-                    type === 'poisonDoubled' || type === 'cardMiss' ||
-                    type === 'enemyAttack') {
+                    type === 'poisonDoubled' || type === 'enemyAttack') {
                 var sourceType = source.displaySide === 'right' ? 'enemy' : 'hero';
                 return {
                     type: 'attack',
                     source: combatantRef(sourceType, sourceType === 'enemy' ? source : hero),
                     target: combatantRef(targetType, target),
-                    hit: type !== 'cardMiss',
-                    glow: type !== 'cardMiss' ? 'red' : null
+                    hit: true,
+                    glow: 'red'
                 };
             }
             return null;
         }
 
         function pushActionEvent(type, data, source, targetType, target, hpChange) {
+            if (data.card && data.successType == null) data.successType = 'success';
             var animation = animationRef(source, targetType, target);
             var change = hpChangeRef(hpChange, targetType, target);
             var label = actionLabelRef(source);
@@ -334,6 +334,56 @@
             if (label) data.actionLabel = label;
             if (choreography) data.choreography = choreography;
             pushEvent(type, data);
+        }
+
+        function cardIntendedTargetType(card) {
+            var enemyEffects = {
+                damage: true,
+                poison: true,
+                poisonDouble: true
+            };
+            var heroEffects = {
+                block: true,
+                blockRetain: true,
+                blockPerm: true,
+                heal: true,
+                drawNext: true,
+                probNext: true
+            };
+            for (var i = 0; i < card.effects.length; i++) {
+                var code = card.effects[i].code;
+                if (enemyEffects[code]) return 'enemy';
+                if (heroEffects[code]) return 'hero';
+            }
+            return card.category === 'attack' ? 'enemy' : 'hero';
+        }
+
+        function pushCardUseEvent(card, target, success, hitIndex, hitCount, probability) {
+            var targetType = cardIntendedTargetType(card);
+            var targetObject = targetType === 'enemy' ? target : hero;
+            var intendedTarget = combatantRef(targetType, targetObject);
+            var data = {
+                card: cardRef(card),
+                successType: success ? 'success' : 'miss',
+                intendedTarget: intendedTarget,
+                hit: hitIndex + 1,
+                hits: hitCount,
+                probability: probability
+            };
+
+            if (!success) {
+                data.actionLabel = actionLabelRef(card);
+                if (card.category === 'attack' && targetType === 'enemy') {
+                    data.choreography = {
+                        type: 'attack',
+                        source: combatantRef('hero', hero),
+                        target: intendedTarget,
+                        hit: false,
+                        glow: null
+                    };
+                }
+            }
+            pushEvent('cardUse', data);
         }
 
         function pushHpChangeEvent(type, data, amount, targetType, target, source) {
@@ -592,24 +642,13 @@
                         var success = roll <= effectiveRate;
                         addCategoryAttempt(card.category, success);
 
+                        var probability = { effective: effectiveRate, roll: roll };
                         if (!success) {
-                            pushActionEvent('cardMiss', {
-                                card: cardRef(card),
-                                target: enemyRef(target),
-                                hit: hitIndex + 1,
-                                hits: hitCount,
-                                probability: { effective: effectiveRate, roll: roll }
-                            }, card, 'enemy', target);
+                            pushCardUseEvent(card, target, false, hitIndex, hitCount, probability);
                             continue;
                         }
 
-                        pushEvent('cardSuccess', {
-                            card: cardRef(card),
-                            target: enemyRef(target),
-                            hit: hitIndex + 1,
-                            hits: hitCount,
-                            probability: { effective: effectiveRate, roll: roll }
-                        });
+                        pushCardUseEvent(card, target, true, hitIndex, hitCount, probability);
                         applySuccessfulCard(card, target, hitIndex, hitCount);
 
                         var thornEffect = effectByCode(card, 'thorn');

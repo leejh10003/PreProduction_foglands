@@ -77,6 +77,55 @@
     var hpBarTextGap = 6;
     var hpBarTextWidth = 76;
     var hpBarBitmapHeight = 20;
+    var debugLogFileName = 'FoglandsBattleDebug.log';
+    var debugSessionId = String(Date.now()) + '-' +
+        String(Math.floor(Math.random() * 1000000));
+    var debugSessionStarted = false;
+    var debugLogErrorReported = false;
+
+    function battleDebugLogPath() {
+        if (typeof require !== 'function' || !window.StorageManager) return null;
+        var path = require('path');
+        return path.join(StorageManager.localFileDirectoryPath(), debugLogFileName);
+    }
+
+    function appendBattleDebugLog(kind, data) {
+        try {
+            var logPath = battleDebugLogPath();
+            if (!logPath) return false;
+
+            var fs = require('fs');
+            var path = require('path');
+            var directory = path.dirname(logPath);
+            if (!fs.existsSync(directory)) fs.mkdirSync(directory);
+
+            if (!debugSessionStarted) {
+                fs.appendFileSync(logPath, JSON.stringify({
+                    timestamp: new Date().toISOString(),
+                    sessionId: debugSessionId,
+                    kind: 'session_start'
+                }) + '\r\n', 'utf8');
+                debugSessionStarted = true;
+            }
+
+            var record = {
+                timestamp: new Date().toISOString(),
+                sessionId: debugSessionId,
+                kind: kind
+            };
+            Object.keys(data || {}).forEach(function(key) {
+                record[key] = data[key];
+            });
+            fs.appendFileSync(logPath, JSON.stringify(record) + '\r\n', 'utf8');
+            return true;
+        } catch (error) {
+            if (!debugLogErrorReported && window.console && console.error) {
+                console.error('Foglands battle debug log failed:', error);
+                debugLogErrorReported = true;
+            }
+            return false;
+        }
+    }
 
     function Sprite_FoglandsHpChange() {
         this.initialize.apply(this, arguments);
@@ -246,6 +295,96 @@
     };
 
     window.FoglandsMapBattle = window.FoglandsMapBattle || {};
+
+    FoglandsMapBattle.debugLogPath = function() {
+        return battleDebugLogPath();
+    };
+
+    FoglandsMapBattle.describeAnimationTarget = function(target) {
+        if (!target) return null;
+        var isPlayer = target === $gamePlayer;
+        var eventId = target.eventId && target.eventId();
+        return {
+            objectType: target.constructor && target.constructor.name || 'Unknown',
+            targetKind: isPlayer ? 'hero' : (eventId ? 'mapEvent' : 'character'),
+            mapId: $gameMap && $gameMap.mapId ? $gameMap.mapId() : 0,
+            eventId: Number(eventId || 0),
+            x: Number(target.x || 0),
+            y: Number(target.y || 0),
+            characterName: target.characterName ? target.characterName() : '',
+            characterIndex: target.characterIndex ? target.characterIndex() : 0
+        };
+    };
+
+    FoglandsMapBattle.logTimelineSkillUse = function(event, eventIndex) {
+        if (!event || (!event.card && event.type !== 'enemyAttack')) return false;
+        var state = FoglandsMapBattle.current();
+        var combat = state && state.combat;
+        var hero = combat && combat.input && combat.input.hero;
+        var enemyAction = event.type === 'enemyAttack';
+        var source = enemyAction ? event.source : hero;
+        var skillName = event.card && event.card.name ||
+            event.actionLabel && event.actionLabel.text ||
+            source && source.name || '';
+        var declaredTarget = event.animation || event.hpChange ||
+            event.choreography && event.choreography.target ||
+            event.intendedTarget || null;
+
+        return appendBattleDebugLog('skill_use', {
+            mapId: $gameMap && $gameMap.mapId ? $gameMap.mapId() : 0,
+            troopId: state ? Number(state.troopId || 0) : 0,
+            combatSeed: state ? Number(state.combatSeed || 0) : 0,
+            timelineIndex: Number(eventIndex),
+            sequence: Number(event.sequence == null ? -1 : event.sequence),
+            turn: Number(event.turn || 0),
+            eventType: String(event.type || ''),
+            successType: String(event.successType || ''),
+            userType: enemyAction ? 'enemy' : 'hero',
+            userId: enemyAction ? Number(source && source.instanceId || 0) :
+                Number(source && source.actorId || 0),
+            userName: String(source && source.name || ''),
+            skillName: String(skillName),
+            cardUid: Number(event.card && event.card.uid || 0),
+            cardId: Number(event.card && event.card.cardId || 0),
+            declaredTarget: declaredTarget ? {
+                targetType: String(declaredTarget.targetType || ''),
+                targetId: Number(declaredTarget.targetId || 0)
+            } : null
+        });
+    };
+
+    FoglandsMapBattle.logTimelineAnimation = function(event, target, status,
+            reason, animationIdBefore) {
+        var animation = event && event.animation;
+        var animationId = Number(animation && animation.animationId || 0);
+        var animationData = $dataAnimations && $dataAnimations[animationId];
+        var record = {
+            mapId: $gameMap && $gameMap.mapId ? $gameMap.mapId() : 0,
+            sequence: Number(!event || event.sequence == null ? -1 : event.sequence),
+            turn: Number(event && event.turn || 0),
+            eventType: String(event && event.type || ''),
+            successType: String(event && event.successType || ''),
+            skillName: String(event && event.card && event.card.name ||
+                event && event.actionLabel && event.actionLabel.text || ''),
+            animationId: animationId,
+            animationName: String(animationData && animationData.name || ''),
+            declaredTarget: animation ? {
+                targetType: String(animation.targetType || ''),
+                targetId: Number(animation.targetId || 0)
+            } : null
+        };
+
+        if (status === 'request') {
+            record.actualTarget = FoglandsMapBattle.describeAnimationTarget(target);
+            record.animationIdBefore = Number(animationIdBefore || 0);
+            record.animationIdAfter = Number(target && target.animationId ?
+                target.animationId() : 0);
+            return appendBattleDebugLog('animation_request', record);
+        }
+
+        record.reason = String(reason || 'unknown');
+        return appendBattleDebugLog('animation_skipped', record);
+    };
 
     FoglandsMapBattle.params = function() {
         return {
@@ -830,11 +969,23 @@
     FoglandsMapBattle.startTimelineAnimation = function(event) {
         var animation = event && event.animation;
         var animationId = Number(animation && animation.animationId || 0);
-        if (!animationId || !$dataAnimations[animationId]) return false;
+        if (!animationId || !$dataAnimations[animationId]) {
+            // FoglandsMapBattle.logTimelineAnimation(
+            //     event, null, 'skipped', 'invalidAnimation', 0);
+            return false;
+        }
 
         var target = FoglandsMapBattle.timelineAnimationTarget(animation);
-        if (!target || !target.requestAnimation) return false;
+        if (!target || !target.requestAnimation) {
+            // FoglandsMapBattle.logTimelineAnimation(
+            //     event, target, 'skipped', 'targetNotFound', 0);
+            return false;
+        }
+
+        var animationIdBefore = target.animationId ? target.animationId() : 0;
         target.requestAnimation(animationId);
+        // FoglandsMapBattle.logTimelineAnimation(
+        //     event, target, 'request', '', animationIdBefore);
         return true;
     };
 
@@ -864,7 +1015,8 @@
 
     FoglandsMapBattle.timelineActionLabel = function(event) {
         if (!event) return null;
-        if (event.type === 'cardSuccess') return null;
+        if (event.type === 'cardSuccess' ||
+                event.type === 'cardUse' && event.successType === 'success') return null;
         if (event.actionLabel && event.actionLabel.text) return event.actionLabel;
         if (event.card && event.card.name) {
             return {
@@ -989,6 +1141,7 @@
             }
 
             FoglandsMapBattle.applyCombatHpSnapshot(actionEvent.state);
+            // FoglandsMapBattle.logTimelineSkillUse(actionEvent, eventIndex);
             playback.animationPending = FoglandsMapBattle.startTimelineAnimation(actionEvent);
             playback.valuePopupPending = FoglandsMapBattle.startTimelineHpChange(actionEvent);
             playback.choreographyPending =
