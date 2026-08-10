@@ -1,7 +1,13 @@
 [
 null,
 {"id":1,"battlerName":"Actor1_1","characterIndex":0,"characterName":"Actor1","classId":1,"equips":[1,1,2,3,0],"faceIndex":0,"faceName":"Actor1","traits":[],"initialLevel":1,"maxLevel":99,"name":"헤럴드","nickname":"","note":"","profile":""},
-{"id":2,"battlerName":"Actor1_8","characterIndex":1,"characterName":"People1","classId":2,"equips":[2,1,2,3,0],"faceIndex":1,"faceName":"People1","traits":[],"initialLevel":1,"maxLevel":99,"name":"테레즈","nickname":"","note":"","profile":""},
-{"id":3,"battlerName":"Actor3_8","characterIndex":7,"characterName":"Actor3","classId":3,"equips":[3,0,2,3,4],"faceIndex":7,"faceName":"Actor3","traits":[],"initialLevel":1,"maxLevel":99,"name":"마샤","nickname":"","note":"","profile":""},
-{"id":4,"battlerName":"Actor2_7","characterIndex":6,"characterName":"Actor2","classId":4,"equips":[4,0,2,3,4],"faceIndex":6,"faceName":"Actor2","traits":[],"initialLevel":1,"maxLevel":99,"name":"루셔스","nickname":"","note":"","profile":""}
+{"id":2,"battlerName":"","characterIndex":7,"characterName":"Actor3","classId":1,"equips":[0,0,0,0,0],"faceIndex":7,"faceName":"Actor3","traits":[],"initialLevel":1,"maxLevel":99,"name":"점쟁이","nickname":"","note":"<FogCompanion:seer>","profile":""},
+{"id":3,"battlerName":"","characterIndex":0,"characterName":"Actor3","classId":1,"equips":[0,0,0,0,0],"faceIndex":0,"faceName":"Actor3","traits":[],"initialLevel":1,"maxLevel":99,"name":"방패술사","nickname":"","note":"<FogCompanion:shield>","profile":""},
+{"id":4,"battlerName":"","characterIndex":1,"characterName":"Actor2","classId":1,"equips":[0,0,0,0,0],"faceIndex":1,"faceName":"Actor2","traits":[],"initialLevel":1,"maxLevel":99,"name":"음유시인","nickname":"","note":"<FogCompanion:bard>","profile":""},
+{"id":5,"battlerName":"","characterIndex":6,"characterName":"Actor2","classId":1,"equips":[0,0,0,0,0],"faceIndex":6,"faceName":"Actor2","traits":[],"initialLevel":1,"maxLevel":99,"name":"연금술사","nickname":"","note":"<FogCompanion:alch>","profile":""},
+{"id":6,"battlerName":"","characterIndex":4,"characterName":"Actor1","classId":1,"equips":[0,0,0,0,0],"faceIndex":4,"faceName":"Actor1","traits":[],"initialLevel":1,"maxLevel":99,"name":"용병","nickname":"","note":"<FogCompanion:merc>","profile":""},
+{"id":7,"battlerName":"","characterIndex":6,"characterName":"Actor3","classId":1,"equips":[0,0,0,0,0],"faceIndex":6,"faceName":"Actor3","traits":[],"initialLevel":1,"maxLevel":99,"name":"사냥꾼","nickname":"","note":"<FogCompanion:hunter>","profile":""},
+{"id":8,"battlerName":"","characterIndex":2,"characterName":"Actor3","classId":1,"equips":[0,0,0,0,0],"faceIndex":2,"faceName":"Actor3","traits":[],"initialLevel":1,"maxLevel":99,"name":"수선공","nickname":"","note":"<FogCompanion:tinker>","profile":""},
+{"id":9,"battlerName":"","characterIndex":2,"characterName":"Actor1","classId":1,"equips":[0,0,0,0,0],"faceIndex":2,"faceName":"Actor1","traits":[],"initialLevel":1,"maxLevel":99,"name":"도박꾼","nickname":"","note":"<FogCompanion:gambler>","profile":""},
+{"id":10,"battlerName":"","characterIndex":4,"characterName":"Actor2","classId":1,"equips":[0,0,0,0,0],"faceIndex":4,"faceName":"Actor2","traits":[],"initialLevel":1,"maxLevel":99,"name":"독술사","nickname":"","note":"<FogCompanion:poisoner>","profile":""}
 ]

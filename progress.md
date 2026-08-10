@@ -10,8 +10,10 @@ contracts, and standing implementation rules in `AGENTS.md`.
 - The top-view map battle core is stable enough for continued feature work.
 - The healing-miss target regression is fixed and guarded by automated tests.
 - No filesystem debug logging is active during normal battle playback.
-- The next product feature is companion actor setup, map recruitment, follower
-  formation, and companion combat promises as defined in section 12.
+- Companion-plan steps 1-2 are complete: the actor database and stock-art
+  mapping were approved by the user.
+- The next implementation work starts at section 12 step 3: map recruitment,
+  follower formation, and companion combat promises.
 
 ## Planned Post-Battle Flow
 
@@ -58,6 +60,13 @@ resolution, input immutability, and the recorded two-bat battle seed.
   combat promises, and corrupted malfunction as the next feature sequence.
 - Added the six-stage implementation plan in section 12; purification remains
   deferred to the later post-battle deduction flow.
+- Replaced the three unused default actors with nine named companion records in
+  `data/Actors.json`, kept hero actor 1 and the starting party unchanged, and
+  assigned matching stock character/face indices from `Actor1`-`Actor3`.
+- Companion-plan steps 1-2 were initially held under user review rather than
+  being marked complete.
+- User approved the actor cleanup and stock-art mapping; companion-plan steps
+  1-2 are now complete.
 
 ### 2026-08-08
 
@@ -141,6 +150,8 @@ resolution, input immutability, and the recorded two-bat battle seed.
 - Origin transfer keeps the battle context until destination-map formation restoration completes.
 - A defeat with `canLose: true` revives dead battle members to 1 HP before return, matching MV's default can-lose behavior.
 - A defeat with `canLose: false` restores the origin formation, then MV's normal game-over check proceeds after the return context is cleared.
+- The hero plus nine named companion actors and their paired stock character/
+  face assets are configured and approved.
 
 ### Partial
 
@@ -159,8 +170,8 @@ resolution, input immutability, and the recorded two-bat battle seed.
 - Fog-picked card reveal screen.
 - Post-battle result review flow.
 - Reward offer, rarity rolls, pity, and reward acquisition UI.
-- Companion actors, map recruitment, follower formation, promised buffs,
-  corruption behavior, and purification.
+- Companion map recruitment, follower formation, promised buffs, corruption
+  behavior, and purification.
 - Accusation/skip accusation and deduction notebook workflow.
 - Positive/negative mythos event selection and application.
 - Village/boss/run progression and run-clear/death screens.
@@ -631,9 +642,9 @@ Village/run progression from prototype:
 
 ### 12. Companion Actors, Map Recruitment, Followers, And Combat Promises
 
-**Status: Not Started.** This section is the next planned product feature.
-Implement the normal recruitment and buff path first, then add corrupted
-behavior as a separate milestone. Purification remains deferred.
+**Status: In Progress.** Steps 1-2 are complete and approved. Implement map
+recruitment and follower insertion next, then the normal buff path and
+corrupted behavior as separate milestones. Purification remains deferred.
 
 Design reference:
 
@@ -644,7 +655,8 @@ Design reference:
 
 Implementation work:
 
-1. **Reduce the MV actor database to the hero plus companion slots.**
+1. **Complete — reduce the MV actor database to the hero plus companion
+   slots.**
    - Identify and preserve the current hero actor and its existing references.
    - Remove every other unused default actor from `data/Actors.json` before
      creating companion records.
@@ -653,7 +665,8 @@ Implementation work:
    - Keep the hero as the only combat performer; companions must not become
      ordinary attackers, equipment users, or `Scene_Battle` participants.
 
-2. **Create the nine named companion actors and assign stock MV artwork.**
+2. **Complete — create the nine named companion actors and assign stock MV
+   artwork.**
    - Create actors named `점쟁이`, `방패술사`, `음유시인`, `연금술사`,
      `용병`, `사냥꾼`, `수선공`, `도박꾼`, and `독술사`.
    - Visually inspect `img/characters/Actor1.png` through `Actor3.png` and
@@ -662,6 +675,20 @@ Implementation work:
      `Actor3.png`; record the chosen sheet name and index so the map sprite and
      face portrait stay paired.
    - Do not overwrite or modify the stock image sheets.
+
+   Approved mapping:
+
+   | Actor ID | Companion | Character | Face |
+   | --- | --- | --- | --- |
+   | 2 | 점쟁이 | `Actor3[7]` | `Actor3[7]` |
+   | 3 | 방패술사 | `Actor3[0]` | `Actor3[0]` |
+   | 4 | 음유시인 | `Actor2[1]` | `Actor2[1]` |
+   | 5 | 연금술사 | `Actor2[6]` | `Actor2[6]` |
+   | 6 | 용병 | `Actor1[4]` | `Actor1[4]` |
+   | 7 | 사냥꾼 | `Actor3[6]` | `Actor3[6]` |
+   | 8 | 수선공 | `Actor3[2]` | `Actor3[2]` |
+   | 9 | 도박꾼 | `Actor1[2]` | `Actor1[2]` |
+   | 10 | 독술사 | `Actor2[4]` | `Actor2[4]` |
 
 3. **Place recruitable companion events on authored map space.**
    - Inspect map passability and existing events before choosing positions.
@@ -744,8 +771,8 @@ Implementation work:
 
 Work in this order unless the user explicitly redirects the prototype:
 
-1. Complete section 12 steps 1-4: actor cleanup, companion actor/art setup,
-   Map003 recruitment events, and direction-aware tail-follower insertion.
+1. Complete section 12 steps 3-4: Map003 recruitment events and
+   direction-aware tail-follower insertion.
 2. Complete section 12 step 5: normal companion promises, serialized timeline
    evidence, presentation, and deterministic tests.
 3. Complete section 12 step 6: concealed corrupted behavior and paired
