@@ -10,8 +10,8 @@ contracts, and standing implementation rules in `AGENTS.md`.
 - The top-view map battle core is stable enough for continued feature work.
 - The healing-miss target regression is fixed and guarded by automated tests.
 - No filesystem debug logging is active during normal battle playback.
-- The next product feature should be selected from `Suggested Next Steps`
-  below.
+- The next product feature is companion actor setup, map recruitment, follower
+  formation, and companion combat promises as defined in section 12.
 
 ## Planned Post-Battle Flow
 
@@ -52,6 +52,13 @@ resolution, input immutability, and the recorded two-bat battle seed.
 
 ## Change History
 
+### 2026-08-10
+
+- Selected companion actor setup, map recruitment, follower formation, normal
+  combat promises, and corrupted malfunction as the next feature sequence.
+- Added the six-stage implementation plan in section 12; purification remains
+  deferred to the later post-battle deduction flow.
+
 ### 2026-08-08
 
 - Added synchronous JSON Lines diagnostics for skill use and animation target
@@ -91,7 +98,8 @@ resolution, input immutability, and the recorded two-bat battle seed.
   showed that the source `cardMiss` event itself carried the wrong target.
 - Filesystem battle diagnostics are disabled, not deleted. Re-enable the
   commented calls only when another target/playback investigation needs them.
-- Companion roster/deployment work is deferred rather than cancelled.
+- Companion roster/deployment work was previously deferred and is now planned
+  as the next product feature in section 12.
 
 ## Current Implementation Status
 
@@ -151,7 +159,8 @@ resolution, input immutability, and the recorded two-bat battle seed.
 - Fog-picked card reveal screen.
 - Post-battle result review flow.
 - Reward offer, rarity rolls, pity, and reward acquisition UI.
-- Companion roster/deployment, promised buffs, betrayal behavior, and purification.
+- Companion actors, map recruitment, follower formation, promised buffs,
+  corruption behavior, and purification.
 - Accusation/skip accusation and deduction notebook workflow.
 - Positive/negative mythos event selection and application.
 - Village/boss/run progression and run-clear/death screens.
@@ -620,14 +629,132 @@ Village/run progression from prototype:
 - Moving to the next village heals 30% max HP.
 - After village 4, run clear.
 
+### 12. Companion Actors, Map Recruitment, Followers, And Combat Promises
+
+**Status: Not Started.** This section is the next planned product feature.
+Implement the normal recruitment and buff path first, then add corrupted
+behavior as a separate milestone. Purification remains deferred.
+
+Design reference:
+
+- `C:/Users/LeeJunHyuk/Downloads/foglands_fullrun_demo_v9.html`
+- Use the nine companion roles and their three recruitment-dialogue variants
+  from the prototype as content reference. The HTML file is not a runtime
+  dependency of the MV project.
+
+Implementation work:
+
+1. **Reduce the MV actor database to the hero plus companion slots.**
+   - Identify and preserve the current hero actor and its existing references.
+   - Remove every other unused default actor from `data/Actors.json` before
+     creating companion records.
+   - Audit `data/System.json`, event commands, starting-party data, and plugin
+     assumptions so no removed actor ID remains referenced accidentally.
+   - Keep the hero as the only combat performer; companions must not become
+     ordinary attackers, equipment users, or `Scene_Battle` participants.
+
+2. **Create the nine named companion actors and assign stock MV artwork.**
+   - Create actors named `점쟁이`, `방패술사`, `음유시인`, `연금술사`,
+     `용병`, `사냥꾼`, `수선공`, `도박꾼`, and `독술사`.
+   - Visually inspect `img/characters/Actor1.png` through `Actor3.png` and
+     select a suitable character-sheet index for each role.
+   - Select the matching portrait from `img/faces/Actor1.png` through
+     `Actor3.png`; record the chosen sheet name and index so the map sprite and
+     face portrait stay paired.
+   - Do not overwrite or modify the stock image sheets.
+
+3. **Place recruitable companion events on authored map space.**
+   - Inspect map passability and existing events before choosing positions.
+   - Place each companion as a normal, pre-created map event in suitable
+     walkable areas, initially targeting the city map (`Map003`).
+   - Avoid blocking narrow paths, doors, transfers, or existing event routes,
+     and do not mechanically regenerate the user-authored map JSON.
+   - Give each event stable companion metadata such as
+     `<FogCompanion:seer>` rather than identifying it only by event ID.
+   - On interaction, present that companion's recruitment dialogue and an
+     explicit recruit/cancel choice. Save recruitment state so an already
+     recruited companion cannot be added twice.
+
+4. **Implement save-backed recruitment and tail-follower insertion in a new
+   companion plugin.**
+   - Prefer a plugin such as `js/plugins/Foglands_Companions.js`; do not edit
+     MV core engine files.
+   - Store stable companion IDs and actor IDs in save-backed state. If MV party
+     membership is used to supply follower sprites, isolate that use from the
+     Foglands combat roster so only the hero performs combat actions.
+   - When recruitment succeeds, refresh the followers and insert the new
+     companion at the final visible follower position without disturbing the
+     order of companions already following the hero.
+   - Place the new tail one tile behind the current chain using the current
+     movement/facing direction: down -> north, left -> east, right -> west,
+     and up -> south. When followers already exist, derive the insertion point
+     from the previous tail and its direction; use a safe fallback when that
+     tile is invalid or impassable.
+   - Preserve follower order, positions, and directions through save/load,
+     transfers, and the existing Map002 battle return-formation workflow.
+
+5. **Implement the nine normal companion promises in combat.**
+   - Add normalized companion input to `FoglandsCombat.resolve(input)` and
+     keep all authoritative calculations inside the pure seeded resolver.
+   - Companions remain buffers; they never replace the hero as the performer.
+   - Implement the base prototype values:
+
+   | Companion | Normal promise |
+   | --- | --- |
+   | 점쟁이 | Attack-card success chance `+20%p` |
+   | 방패술사 | Defense-card success chance `+25%p` |
+   | 음유시인 | Skill-card success chance `+20%p` |
+   | 연금술사 | After victory, `40%` chance to heal hero HP by `12` |
+   | 용병 | Gain `8` block at battle start |
+   | 사냥꾼 | Draw `1` additional card on the first turn |
+   | 수선공 | Gain `5` block on every reshuffle |
+   | 도박꾼 | Each turn, `50%` chance to deal `6` extra damage |
+   | 독술사 | On a successful hero attack, `30%` chance to add `2` poison |
+
+   - Serialize companion activations, failures, HP changes, and state snapshots
+     into the result/timeline so map playback and the future notebook can use
+     them without rerolling.
+   - Present friendly companion action labels on the left and use the existing
+     friendly buff/attack choreography contracts where applicable.
+   - Add deterministic resolver tests for every normal promise, including
+     multi-enemy targeting and save/replay stability where relevant.
+   - This milestone deliberately ignores corruption and purification.
+
+6. **Implement corrupted companion malfunction without purification.**
+   - Persist corruption by stable companion ID and pass it into the resolver;
+     never infer it from a sprite, actor name, or current follower index.
+   - Match the prototype's concealed malfunction rules:
+     - Corrupted `점쟁이`, `방패술사`, and `음유시인` still display their
+       positive promise, but the real category modifier is inverted to
+       `-20%p`, `-25%p`, and `-20%p` respectively.
+     - Corrupted `용병`, `사냥꾼`, `수선공`, `도박꾼`, and `독술사` silently
+       fail to provide their promised effect.
+     - When corrupted `연금술사` successfully procs after victory, the potion
+       removes `12` HP instead of healing `12`, without reducing the hero below
+       `1` HP.
+   - Do not expose corruption directly in recruitment dialogue or the normal
+     promise label; evidence should come from serialized combat behavior and
+     statistics.
+   - Keep seeded rolls deterministic and add paired normal/corrupted regression
+     tests for all nine companions.
+   - Do not implement accusation, reveal, cleansing, or purification in this
+     milestone. Those remain part of the later post-battle deduction flow.
+
 ## Suggested Next Steps
 
 Work in this order unless the user explicitly redirects the prototype:
 
-1. Integrate victory/defeat/escape with MV Event Battle Processing branches and define a result review point before or after return.
-2. Persist a notebook entry from `combat.result.stats` before the return restoration clears the battle context.
-3. Add the three-card reward offer, pity state, and reward acquisition after normal victory.
-4. Add the fog-picked-card reveal between deck confirmation and timeline playback.
-5. Expand the Map002 HP bars into a broader status HUD around the existing timed action playback; add speed and instant-complete controls afterward.
-6. Add companion promise/buff inputs to the resolver, then betrayal evidence and accusation/purification phases.
-7. Add mythos events, card upgrade/removal workflows, curse acquisition controls, and village/run progression.
+1. Complete section 12 steps 1-4: actor cleanup, companion actor/art setup,
+   Map003 recruitment events, and direction-aware tail-follower insertion.
+2. Complete section 12 step 5: normal companion promises, serialized timeline
+   evidence, presentation, and deterministic tests.
+3. Complete section 12 step 6: concealed corrupted behavior and paired
+   regression tests; keep purification deferred.
+4. Integrate victory/defeat/escape with MV Event Battle Processing branches and define a result review point before or after return.
+5. Persist a notebook entry from `combat.result.stats` before the return restoration clears the battle context.
+6. Add the three-card reward offer, pity state, and reward acquisition after normal victory.
+7. Add the fog-picked-card reveal between deck confirmation and timeline playback.
+8. Expand the Map002 HP bars into a broader status HUD around the existing timed action playback; add speed and instant-complete controls afterward.
+9. Add betrayal evidence and accusation/purification phases after the corrupted
+   companion behavior has produced usable evidence.
+10. Add mythos events, card upgrade/removal workflows, curse acquisition controls, and village/run progression.
