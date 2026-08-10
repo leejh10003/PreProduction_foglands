@@ -12,6 +12,7 @@ Focus on these files for the current battle prototype:
 
 - `data/FogCards.json`
 - `js/plugins/Foglands_Cards.js`
+- `js/plugins/Foglands_Companions.js`
 - `js/plugins/Foglands_Combat.js`
 - `js/plugins/Foglands_MapBattle.js`
 - `js/plugins/ScreenFilter.js`
@@ -19,6 +20,7 @@ Focus on these files for the current battle prototype:
 - `data/Map002.json`
 - `data/Map003.json`
 - `test/Foglands_Combat.test.js`
+- `test/Foglands_Companions.test.js`
 - `progress.md`
 
 Avoid editing core MV engine files such as `js/rpg_objects.js`, `js/rpg_scenes.js`, `js/rpg_managers.js`, or `js/rpg_sprites.js`. Prefer plugin overrides.
@@ -386,7 +388,7 @@ Event name: FogCompanion_<companionId>_<roleName>
 Event note: <FogCompanion:companionId>
 ```
 
-Current companion preview events:
+Current companion selection events:
 
 - `EV028` `FogCompanion_seer_점쟁이` at `(24, 31)`
 - `EV029` `FogCompanion_shield_방패술사` at `(28, 27)`
@@ -399,12 +401,58 @@ Current companion preview events:
 - `EV036` `FogCompanion_poisoner_독술사` at `(28, 24)`
 
 These are stationary action-button events on passable open tiles near the
-player start. Their repeating custom move route requests light-bulb balloon 9
-while idle. Interaction currently shows one of the companion's three random
-dialogue variants in the standard message window. The face slot is left empty
-so each original dialogue beat fits within one four-line message page without
-mid-sentence page breaks. Recruitment choice and roster mutation are not part
-of these event lists yet.
+player start. Their repeating custom move route queries
+`FoglandsCompanions.balloonId(companionId)`: unselected companions request
+light-bulb balloon 9 and selected companions request heart balloon 4.
+Interaction shows one of the companion's three random dialogue variants in the
+standard message window. The face slot is left empty so each original dialogue
+beat fits within one four-line message page without mid-sentence page breaks.
+
+After dialogue, an unselected companion offers `오늘 밤 데려간다` and
+`그만둔다`; a selected companion offers `오늘 밤 출전에서 뺀다` and
+`그만둔다`. Choosing `그만둔다` or cancelling exits event processing
+immediately. The other choice updates the save-backed deployment state and
+requests the new heart/light-bulb balloon without adding or removing an MV
+party member. Deployment is capped at four companions. At capacity, selected
+companions still offer an enabled removal choice, while an unselected
+companion's add choice remains visible but is disabled and the default cursor
+moves to `그만둔다`.
+
+## Foglands_Companions.js
+
+`js/plugins/Foglands_Companions.js` owns companion deployment state separately
+from `$gameParty` and MV followers. The state is created by
+`Game_System.initialize`, survives save/load, and lasts for the lifetime of
+that game:
+
+```js
+$gameSystem._foglandsCompanionDeployment = {
+    version: 1,
+    deployedIds: [companionId]
+};
+```
+
+Public API:
+
+```js
+FoglandsCompanions.actorId(companionId) -> Number
+FoglandsCompanions.maxDeployed() -> Number
+FoglandsCompanions.deployedIds() -> [companionId]
+FoglandsCompanions.isDeployed(companionId) -> Boolean
+FoglandsCompanions.isFull() -> Boolean
+FoglandsCompanions.canDeploy(companionId) -> Boolean
+FoglandsCompanions.setDeployed(companionId, deployed) -> Boolean
+FoglandsCompanions.toggleDeployed(companionId) -> Boolean
+FoglandsCompanions.clearDeployment()
+FoglandsCompanions.balloonId(companionId) -> 4 | 9
+```
+
+`MAX_DEPLOYED` is the authoritative capacity constant and is currently `4`.
+`setDeployed(companionId, true)` rejects a new selection at capacity, while
+removal remains valid. Loading an older oversized state retains the first four
+valid unique IDs. Do not infer deployment from actor party membership,
+follower order, map-event position, or balloon state; `deployedIds` is
+authoritative.
 
 ## ScreenFilter.js
 
@@ -517,9 +565,10 @@ Required plugin order:
 1. `MadeWithMv`
 2. `ScreenFilter`
 3. `Foglands_Cards`
-4. `Foglands_Combat`
-5. `Foglands_MapBattle`
-6. `Community_Basic`
+4. `Foglands_Companions`
+5. `Foglands_Combat`
+6. `Foglands_MapBattle`
+7. `Community_Basic`
 
 If combat confirmation only plays the buzzer, check this file first. A missing
 or disabled `Foglands_Combat` causes `FoglandsMapBattle.startCombat()` to return
@@ -536,13 +585,16 @@ MV's Plugin Manager rather than relying only on a manual edit.
 - Keep static card definitions separate from runtime card instances.
 - Do not dynamically create map events unless the user explicitly chooses that direction.
 - Do not put companions into `$gameParty` as normal actors for this system yet.
+- Store companion deployment in `Foglands_Companions` save-backed state, not
+  follower membership or plugin-local variables.
 - Prefer data-driven tags and plugin-level state over edits to engine core files.
 
 ## Battle Loop Decisions
 
 Battle design decisions:
 
-- For now, ignore deployed companion implementation and focus on battle triggering into card selection.
+- Map003 companion events now let the player toggle deployment independently
+  of the MV party; combat consumption of that selection is still pending.
 - The first interaction after battle trigger should be choosing the player's battle "hand/deck" (`패`) before the actual fight resolves.
 - The hero is the combat performer.
 - Companions will later be buffers who promise effects. Betrayal means a promised buff is missing or distorted. Purification restores the companion to a normal buffer.
@@ -551,6 +603,8 @@ Battle design decisions:
 Core flow contract:
 
 ```text
+[optional] talk to Map003 companions and toggle deployment
+->
 Map battle trigger
 -> store troopId and return position
 -> transfer to Map002

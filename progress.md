@@ -12,9 +12,10 @@ contracts, and standing implementation rules in `AGENTS.md`.
 - No filesystem debug logging is active during normal battle playback.
 - Companion-plan steps 1-2 are complete: the actor database and stock-art
   mapping were approved by the user.
-- Section 12 step 3 is partial: nine Map003 companion events, idle light-bulb
-  balloons, and random dialogue playback are implemented. Recruit/cancel and
-  roster mutation remain pending.
+- Revised section 12 steps 3-4 were approved by the user and are complete.
+- Section 12 step 5 now enforces a four-companion deployment limit and is
+  implemented pending user validation. At capacity, removal stays available
+  while an unselected companion's add choice is disabled.
 
 ## Planned Post-Battle Flow
 
@@ -43,15 +44,17 @@ Remaining card-system work includes:
 
 ## Verification
 
-Run the combat regression suite with:
+Run the current regression suites with:
 
 ```text
-node --test test/Foglands_Combat.test.js
+node --test test/Foglands_Combat.test.js test/Foglands_Companions.test.js
 ```
 
-Current result: 6 tests passed, 0 failed. The suite covers successful healing,
-missed healing, missed attacks, multi-effect target intent, deterministic
-resolution, input immutability, and the recorded two-bat battle seed.
+Current result: 13 tests passed, 0 failed. The suites cover combat healing and
+miss targeting, deterministic resolution, input immutability, the recorded
+two-bat battle seed, new-game deployment initialization, idempotent selection,
+unknown-ID rejection, balloon selection, four-slot capacity enforcement,
+capacity-aware choice activation, and old-save normalization.
 
 ## Change History
 
@@ -59,7 +62,7 @@ resolution, input immutability, and the recorded two-bat battle seed.
 
 - Selected companion actor setup, map recruitment, follower formation, normal
   combat promises, and corrupted malfunction as the next feature sequence.
-- Added the six-stage implementation plan in section 12; purification remains
+- Added the initial six-stage implementation plan in section 12; purification remains
   deferred to the later post-battle deduction flow.
 - Replaced the three unused default actors with nine named companion records in
   `data/Actors.json`, kept hero actor 1 and the starting party unchanged, and
@@ -74,6 +77,21 @@ resolution, input immutability, and the recorded two-bat battle seed.
   action-button interaction.
 - Verified that the added event bodies remove only their own nine occupied
   tiles from the reachable map graph and do not disconnect any walkable area.
+- Added `Foglands_Companions.js` with game-lifetime, save-backed deployment
+  state that is independent from `$gameParty` and followers.
+- Updated all nine companion events to offer add/remove plus quit after their
+  dialogue. Selection changes swap idle feedback between heart balloon 4 and
+  light-bulb balloon 9; quit/cancel exits immediately.
+- Superseded the tail-follower insertion plan because follower membership made
+  deployment harder to manipulate and less intuitive. The previous plan is
+  retained after the revised step 4 for decision history.
+- User approved revised steps 3-4 after in-game validation; both are complete.
+- Inserted the new step 5 before combat buffs and defined the deployment limit
+  as `MAX_DEPLOYED = 4`. A fifth selection is rejected, and oversized legacy
+  state is normalized to the first four valid unique companion IDs.
+- At full capacity, `오늘 밤 데려간다` remains visible but is disabled;
+  the cursor starts on `그만둔다`. Already-selected companions retain enabled
+  `오늘 밤 출전에서 뺀다` and quit choices.
 
 ### 2026-08-08
 
@@ -116,6 +134,8 @@ resolution, input immutability, and the recorded two-bat battle seed.
   commented calls only when another target/playback investigation needs them.
 - Companion roster/deployment work was previously deferred and is now planned
   as the next product feature in section 12.
+- Direction-aware tail-follower insertion was superseded by direct, save-backed
+  deployment toggles on each companion event. Followers remain unchanged.
 
 ## Current Implementation Status
 
@@ -171,17 +191,18 @@ resolution, input immutability, and the recorded two-bat battle seed.
 - Upgrade calculations work when a runtime instance already has `upgraded: true`, but no forge/upgrade workflow sets it yet.
 - `seal`, `blurName`, `foghand`, `sleep`, and `morning` are consumed by battle code, but no mythos/event system currently produces and clears them.
 - Curse selection and combat fizzle work, but curse acquisition, purge, and three-curse brand filtering do not.
-- Nine named Map003 companion events have stable note tags, paired actor map
-  art, recurring light-bulb balloons, and random three-variant dialogue; they
-  do not yet offer or persist recruitment.
+- Nine named Map003 companion events have stable note tags, random
+  three-variant dialogue, state-dependent add/remove/quit choices, and
+  heart/light-bulb balloon feedback. Save-backed deployment is approved; its
+  newly added four-companion capacity rule remains under user acceptance
+  review.
 
 ### Not Started
 
 - Fog-picked card reveal screen.
 - Post-battle result review flow.
 - Reward offer, rarity rolls, pity, and reward acquisition UI.
-- Companion map recruitment, follower formation, promised buffs, corruption
-  behavior, and purification.
+- Companion combat promises, corruption behavior, and purification.
 - Accusation/skip accusation and deduction notebook workflow.
 - Positive/negative mythos event selection and application.
 - Village/boss/run progression and run-clear/death screens.
@@ -650,11 +671,13 @@ Village/run progression from prototype:
 - Moving to the next village heals 30% max HP.
 - After village 4, run clear.
 
-### 12. Companion Actors, Map Recruitment, Followers, And Combat Promises
+### 12. Companion Actors, Map Deployment Selection, And Combat Promises
 
-**Status: In Progress.** Steps 1-2 are complete and approved. Implement map
-recruitment and follower insertion next, then the normal buff path and
-corrupted behavior as separate milestones. Purification remains deferred.
+**Status: In Progress.** Steps 1-4 are complete and approved. Step 5's
+four-companion capacity rule is implemented but remains under user review and
+must not be marked complete until the user confirms success. Normal buffs and
+corrupted behavior remain separate later milestones. Purification remains
+deferred.
 
 Design reference:
 
@@ -700,7 +723,8 @@ Implementation work:
    | 9 | 도박꾼 | `Actor1[2]` | `Actor1[2]` |
    | 10 | 독술사 | `Actor2[4]` | `Actor2[4]` |
 
-3. **Partial — place recruitable companion events on authored map space.**
+3. **Complete — place selectable companion events
+   on authored map space.**
    - Inspect map passability and existing events before choosing positions.
    - Place each companion as a normal, pre-created map event in suitable
      walkable areas, initially targeting the city map (`Map003`).
@@ -708,18 +732,42 @@ Implementation work:
      and do not mechanically regenerate the user-authored map JSON.
    - Give each event stable companion metadata such as
      `<FogCompanion:seer>` rather than identifying it only by event ID.
-   - On interaction, present that companion's recruitment dialogue and an
-     explicit recruit/cancel choice. Save recruitment state so an already
-     recruited companion cannot be added twice.
+   - On interaction, present that companion's dialogue and an explicit
+     add/remove/quit choice based on current deployment state.
    - Implemented portion: events 28-36 are placed on Map003, display recurring
      light-bulb balloon 9 while idle, and show one of three random dialogue
      variants when the action button is pressed. Each original dialogue beat
      stays inside one four-line message page without a mid-sentence page break.
-   - Remaining portion: add the explicit recruit/cancel choice and persistent
-     recruited-state handling.
+   - Implemented review portion: unselected companions offer `오늘 밤
+     데려간다`; selected companions offer `오늘 밤 출전에서 뺀다`; both
+     offer `그만둔다`, which exits event processing immediately.
 
-4. **Implement save-backed recruitment and tail-follower insertion in a new
-   companion plugin.**
+4. **Complete (revised) — store deployment
+   separately and leave followers unchanged.**
+
+   Current plan and implementation:
+
+   - `js/plugins/Foglands_Companions.js` stores stable companion IDs and actor
+     IDs in `$gameSystem._foglandsCompanionDeployment` for the lifetime of the
+     game, including save/load.
+   - Selection never adds or removes `$gameParty` members and never changes MV
+     follower order, position, visibility, or movement.
+   - Unselected companions use light-bulb balloon 9; selected companions use
+     heart balloon 4. Event choices update the authoritative selection and
+     request the corresponding balloon immediately.
+   - Deployment capacity is handled separately in step 5.
+
+   Reason for the change:
+
+   - Using follower membership to represent deployment would make it harder and
+     less intuitive for the player to manipulate selected/unselected state.
+     Direct choices and visible balloon feedback communicate the same decision
+     without entangling map formation or battle-return restoration.
+
+   Previous plan, now superseded but retained for history:
+
+   - Implement save-backed recruitment and tail-follower insertion in a new
+     companion plugin.
    - Prefer a plugin such as `js/plugins/Foglands_Companions.js`; do not edit
      MV core engine files.
    - Store stable companion IDs and actor IDs in save-backed state. If MV party
@@ -736,7 +784,21 @@ Implementation work:
    - Preserve follower order, positions, and directions through save/load,
      transfers, and the existing Map002 battle return-formation workflow.
 
-5. **Implement the nine normal companion promises in combat.**
+5. **Implemented; awaiting user acceptance — limit deployment to four
+   companions.**
+   - Define the authoritative limit once as `MAX_DEPLOYED = 4` in
+     `Foglands_Companions.js` and expose capacity queries through the plugin
+     API.
+   - Reject any fifth new selection at the state-mutation boundary, not only in
+     the UI. Normalize oversized legacy save state to the first four valid
+     unique IDs.
+   - At capacity, keep `오늘 밤 데려간다` visible for unselected
+     companions but render it disabled and start the cursor on `그만둔다`.
+   - Do not disable an already-selected companion's `오늘 밤 출전에서
+     뺀다`; removal must remain available so the player can free a slot.
+
+6. **Implement the nine normal companion promises in combat (corruption and
+   purification excluded).**
    - Add normalized companion input to `FoglandsCombat.resolve(input)` and
      keep all authoritative calculations inside the pure seeded resolver.
    - Companions remain buffers; they never replace the hero as the performer.
@@ -763,7 +825,7 @@ Implementation work:
      multi-enemy targeting and save/replay stability where relevant.
    - This milestone deliberately ignores corruption and purification.
 
-6. **Implement corrupted companion malfunction without purification.**
+7. **Implement corrupted companion malfunction without purification.**
    - Persist corruption by stable companion ID and pass it into the resolver;
      never infer it from a sprite, actor name, or current follower index.
    - Match the prototype's concealed malfunction rules:
@@ -787,12 +849,11 @@ Implementation work:
 
 Work in this order unless the user explicitly redirects the prototype:
 
-1. Finish section 12 step 3 with the explicit recruit/cancel choice and saved
-   recruited state, then complete step 4's direction-aware tail-follower
-   insertion.
-2. Complete section 12 step 5: normal companion promises, serialized timeline
+1. Validate section 12 step 5's four-companion limit in-game and keep it under
+   review until the user confirms success.
+2. Complete section 12 step 6: normal companion promises, serialized timeline
    evidence, presentation, and deterministic tests.
-3. Complete section 12 step 6: concealed corrupted behavior and paired
+3. Complete section 12 step 7: concealed corrupted behavior and paired
    regression tests; keep purification deferred.
 4. Integrate victory/defeat/escape with MV Event Battle Processing branches and define a result review point before or after return.
 5. Persist a notebook entry from `combat.result.stats` before the return restoration clears the battle context.
