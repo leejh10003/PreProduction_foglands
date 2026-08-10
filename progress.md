@@ -12,8 +12,9 @@ contracts, and standing implementation rules in `AGENTS.md`.
 - No filesystem debug logging is active during normal battle playback.
 - Companion-plan steps 1-2 are complete: the actor database and stock-art
   mapping were approved by the user.
-- The next implementation work starts at section 12 step 3: map recruitment,
-  follower formation, and companion combat promises.
+- Section 12 step 3 is partial: nine Map003 companion events, idle light-bulb
+  balloons, and random dialogue playback are implemented. Recruit/cancel and
+  roster mutation remain pending.
 
 ## Planned Post-Battle Flow
 
@@ -67,6 +68,12 @@ resolution, input immutability, and the recorded two-bat battle seed.
   being marked complete.
 - User approved the actor cleanup and stock-art mapping; companion-plan steps
   1-2 are now complete.
+- Added nine named companion events to Map003 at passable, non-blocking tiles
+  within Manhattan distance 6-9 of the player start. Each shows light-bulb
+  balloon 9 while idle and selects one of three prototype dialogue variants on
+  action-button interaction.
+- Verified that the added event bodies remove only their own nine occupied
+  tiles from the reachable map graph and do not disconnect any walkable area.
 
 ### 2026-08-08
 
@@ -164,6 +171,9 @@ resolution, input immutability, and the recorded two-bat battle seed.
 - Upgrade calculations work when a runtime instance already has `upgraded: true`, but no forge/upgrade workflow sets it yet.
 - `seal`, `blurName`, `foghand`, `sleep`, and `morning` are consumed by battle code, but no mythos/event system currently produces and clears them.
 - Curse selection and combat fizzle work, but curse acquisition, purge, and three-curse brand filtering do not.
+- Nine named Map003 companion events have stable note tags, paired actor map
+  art, recurring light-bulb balloons, and random three-variant dialogue; they
+  do not yet offer or persist recruitment.
 
 ### Not Started
 
@@ -690,7 +700,7 @@ Implementation work:
    | 9 | 도박꾼 | `Actor1[2]` | `Actor1[2]` |
    | 10 | 독술사 | `Actor2[4]` | `Actor2[4]` |
 
-3. **Place recruitable companion events on authored map space.**
+3. **Partial — place recruitable companion events on authored map space.**
    - Inspect map passability and existing events before choosing positions.
    - Place each companion as a normal, pre-created map event in suitable
      walkable areas, initially targeting the city map (`Map003`).
@@ -701,6 +711,12 @@ Implementation work:
    - On interaction, present that companion's recruitment dialogue and an
      explicit recruit/cancel choice. Save recruitment state so an already
      recruited companion cannot be added twice.
+   - Implemented portion: events 28-36 are placed on Map003, display recurring
+     light-bulb balloon 9 while idle, and show one of three random dialogue
+     variants when the action button is pressed. Each original dialogue beat
+     stays inside one four-line message page without a mid-sentence page break.
+   - Remaining portion: add the explicit recruit/cancel choice and persistent
+     recruited-state handling.
 
 4. **Implement save-backed recruitment and tail-follower insertion in a new
    companion plugin.**
@@ -771,8 +787,9 @@ Implementation work:
 
 Work in this order unless the user explicitly redirects the prototype:
 
-1. Complete section 12 steps 3-4: Map003 recruitment events and
-   direction-aware tail-follower insertion.
+1. Finish section 12 step 3 with the explicit recruit/cancel choice and saved
+   recruited state, then complete step 4's direction-aware tail-follower
+   insertion.
 2. Complete section 12 step 5: normal companion promises, serialized timeline
    evidence, presentation, and deterministic tests.
 3. Complete section 12 step 6: concealed corrupted behavior and paired

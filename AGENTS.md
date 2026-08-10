@@ -375,9 +375,36 @@ There is also an `EV007` currently present at `(3, 9)`. Do not assume Map002 onl
 
 ## Map003.json
 
-`data/Map003.json` is the city map (`MapInfos.json` names map 3 as `시가지`). It currently has 27 events and appears to be the main authored map space.
+`data/Map003.json` is the city map (`MapInfos.json` names map 3 as `시가지`). It currently has 36 events and appears to be the main authored map space.
 
 Treat Map003 as user-authored content. Do not rewrite or regenerate it mechanically. If a battle starts from this map, `Foglands_MapBattle` stores the return position before transferring to Map002.
+
+Map003 companion event convention:
+
+```text
+Event name: FogCompanion_<companionId>_<roleName>
+Event note: <FogCompanion:companionId>
+```
+
+Current companion preview events:
+
+- `EV028` `FogCompanion_seer_점쟁이` at `(24, 31)`
+- `EV029` `FogCompanion_shield_방패술사` at `(28, 27)`
+- `EV030` `FogCompanion_bard_음유시인` at `(32, 31)`
+- `EV031` `FogCompanion_alch_연금술사` at `(34, 35)`
+- `EV032` `FogCompanion_merc_용병` at `(24, 35)`
+- `EV033` `FogCompanion_hunter_사냥꾼` at `(28, 39)`
+- `EV034` `FogCompanion_tinker_수선공` at `(20, 33)`
+- `EV035` `FogCompanion_gambler_도박꾼` at `(36, 33)`
+- `EV036` `FogCompanion_poisoner_독술사` at `(28, 24)`
+
+These are stationary action-button events on passable open tiles near the
+player start. Their repeating custom move route requests light-bulb balloon 9
+while idle. Interaction currently shows one of the companion's three random
+dialogue variants in the standard message window. The face slot is left empty
+so each original dialogue beat fits within one four-line message page without
+mid-sentence page breaks. Recruitment choice and roster mutation are not part
+of these event lists yet.
 
 ## ScreenFilter.js
 
