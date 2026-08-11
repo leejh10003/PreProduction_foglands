@@ -34,6 +34,8 @@
  *     <FogCharIndex:0>
  * - Companion support slot events tagged with <FogCompanionSupportSlot:n>
  *   display deployed companions in deployment order, facing right.
+ * - The combat input carries an ordered, normalized descriptor for each
+ *   deployed companion without adding those companions to the MV party.
  * - The battle flow is split into explicit "selection" and "combat" phases.
  * - Confirming card selection stores player picks, fog picks, and the final
  *   battle deck on the saved battle context.
@@ -514,6 +516,23 @@
         return FoglandsMapBattle.runPhase('combat');
     };
 
+    FoglandsMapBattle.makeCompanionCombatInput = function() {
+        if (!window.FoglandsCompanions) return [];
+
+        var deployedIds = FoglandsCompanions.deployedIds();
+        return deployedIds.map(function(companionId, index) {
+            var actorId = FoglandsCompanions.actorId(companionId);
+            var actor = window.$dataActors && $dataActors[actorId];
+            return {
+                companionId: String(companionId),
+                actorId: Number(actorId || 0),
+                name: actor ? String(actor.name || companionId) :
+                    String(companionId),
+                deploymentIndex: index
+            };
+        });
+    };
+
     FoglandsMapBattle.makeCombatInput = function() {
         var state = FoglandsMapBattle.current();
         if (!state || !window.FoglandsCards) return null;
@@ -581,6 +600,7 @@
             },
             enemies: enemies,
             deck: deck,
+            companions: FoglandsMapBattle.makeCompanionCombatInput(),
             mods: state.mods,
             rules: {
                 maxTurns: 28,

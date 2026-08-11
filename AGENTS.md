@@ -174,6 +174,12 @@ Enemy database `params[0]` (HP) / `params[2]` (ATK). Database values are the
 active balance source; the prototype scaling formulas are reference material,
 not active combat code.
 
+The current input builder also snapshots the save-backed deployment order into
+an optional `companions` array. Each descriptor is serializable and contains
+`companionId`, `actorId`, `name`, and `deploymentIndex`. This bridge does not
+add companions to `$gameParty`, MV followers, or default battle commands; the
+pure resolver may consume the descriptors later without reading game globals.
+
 `FoglandsMapBattle.returnToOrigin()` changes the phase to `returning` and
 reserves the origin transfer without clearing the battle context. MV's transfer
 first synchronizes followers onto the player, so `restoreOriginFormation()`
