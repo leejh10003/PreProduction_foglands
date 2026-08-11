@@ -320,3 +320,44 @@ test('the same seed and input produce the same combat result without mutation', 
     assert.deepEqual(first, second);
     assert.deepEqual(input, original);
 });
+
+test('normalizes companion descriptors by stable id without reordering input', function() {
+    const input = makeInput(makeCard({
+        uid: 1,
+        cardId: 1,
+        category: 'skill',
+        successRate: 100,
+        effects: []
+    }), {
+        rules: {
+            maxTurns: 1,
+            baseDraw: 1,
+            cardsPerTurn: 1
+        }
+    });
+    input.companions = [
+        { companionId: 'bard', actorId: 4, name: '음유시인', deploymentIndex: 9 },
+        { companionId: 'seer', actorId: 2, name: '점쟁이', deploymentIndex: 4 },
+        { companionId: 'bard', actorId: 4, name: '중복', deploymentIndex: 0 },
+        { actorId: 10, name: '식별자 없음' }
+    ];
+    const originalCompanions = JSON.parse(JSON.stringify(input.companions));
+
+    const result = FoglandsCombat.resolve(input);
+
+    assert.deepEqual(result.stats.companions, [
+        {
+            companionId: 'bard',
+            actorId: 4,
+            name: '음유시인',
+            deploymentIndex: 0
+        },
+        {
+            companionId: 'seer',
+            actorId: 2,
+            name: '점쟁이',
+            deploymentIndex: 1
+        }
+    ]);
+    assert.deepEqual(input.companions, originalCompanions);
+});

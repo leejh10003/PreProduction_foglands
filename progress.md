@@ -23,6 +23,8 @@ contracts, and standing implementation rules in `AGENTS.md`.
 - Section 12 step 7.1 has an initial input-bridge implementation, but remains
   in progress until the later resolver, presentation, and end-to-end checks are
   available for user verification.
+- Section 12 step 7.2 now has the resolver-side companion normalization in
+  progress; it remains open until later promise integration and user review.
 
 ## Planned Post-Battle Flow
 
@@ -57,11 +59,12 @@ Run the current regression suites with:
 node --test test/Foglands_Combat.test.js test/Foglands_Companions.test.js
 ```
 
-Current result: 13 tests passed, 0 failed. The suites cover combat healing and
+Current result: 14 tests passed, 0 failed. The suites cover combat healing and
 miss targeting, deterministic resolution, input immutability, the recorded
 two-bat battle seed, new-game deployment initialization, idempotent selection,
 unknown-ID rejection, balloon selection, four-slot capacity enforcement,
-capacity-aware choice activation, and old-save normalization.
+capacity-aware choice activation, old-save normalization, and companion input
+normalization.
 
 ## Change History
 
@@ -101,6 +104,10 @@ capacity-aware choice activation, and old-save normalization.
   carries ordered deployed-companion descriptors without mutating MV party or
   follower state. The subgoal remains open pending later integration and user
   verification.
+- Added 7.2 resolver normalization: `FoglandsCombat.resolve(input)` now copies
+  unique, identified companions in deployment order into
+  `result.stats.companions` without applying promise effects or mutating input.
+  The subgoal remains open pending later integration and user verification.
 
 ### 2026-08-10
 
@@ -876,6 +883,9 @@ Implementation work:
      `$gameSystem`, maps, scenes, windows, and sprites.
    - Preserve deployment order for deterministic labels and evidence, while
      treating companion IDs—not actor names or slot positions—as identity.
+   - Initial implementation normalizes unique identified descriptors into
+     `result.stats.companions`; companion promise effects remain deferred to
+     step 7.3, and this subgoal remains pending user verification.
 
    7.3. **Apply each normal promise at its correct timing.**
    - Apply category probability modifiers during card probability resolution,

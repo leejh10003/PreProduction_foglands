@@ -168,6 +168,10 @@ Resolver behavior:
   their intended enemy but do not animate, damage, recoil, or tint the target.
 - Does not access `$gameSystem`, `$gameMap`, scenes, windows, or sprites.
 - Does not retain combat state between calls.
+- Normalizes optional `input.companions` descriptors by stable
+  `companionId`, preserving array/deployment order and dropping duplicate or
+  unidentified entries. The normalized descriptors are copied to
+  `result.stats.companions`; normal promise effects remain a later milestone.
 
 The current input builder uses the party leader's current HP/max HP and MV
 Enemy database `params[0]` (HP) / `params[2]` (ATK). Database values are the
@@ -178,7 +182,7 @@ The current input builder also snapshots the save-backed deployment order into
 an optional `companions` array. Each descriptor is serializable and contains
 `companionId`, `actorId`, `name`, and `deploymentIndex`. This bridge does not
 add companions to `$gameParty`, MV followers, or default battle commands; the
-pure resolver may consume the descriptors later without reading game globals.
+pure resolver normalizes the descriptors without reading game globals.
 
 `FoglandsMapBattle.returnToOrigin()` changes the phase to `returning` and
 reserves the origin transfer without clearing the battle context. MV's transfer

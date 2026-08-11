@@ -11,6 +11,10 @@
  * This plugin is a pure combat calculator. It does not access RPG Maker
  * scenes, windows, sprites, maps, or save objects. The caller owns the input
  * and stores the returned result.
+ *
+ * The optional input.companions array is normalized by stable companionId and
+ * deployment order. Companion effects are intentionally handled by later
+ * milestones; this resolver only carries the normalized descriptors forward.
  */
 
 (function() {
@@ -132,6 +136,37 @@
         };
     }
 
+    function normalizeCompanion(source, index) {
+        if (!source || typeof source !== 'object') return null;
+
+        var companionId = String(source.companionId || '');
+        if (!companionId) return null;
+
+        var actorId = Number(source.actorId || 0);
+        if (!isFinite(actorId) || actorId < 0) actorId = 0;
+
+        return {
+            companionId: companionId,
+            actorId: actorId,
+            name: String(source.name || companionId),
+            deploymentIndex: index
+        };
+    }
+
+    function normalizeCompanions(sources) {
+        var seen = Object.create(null);
+        return (Array.isArray(sources) ? sources : []).map(function(source, index) {
+            return normalizeCompanion(source, index);
+        }).filter(function(companion) {
+            if (!companion || seen[companion.companionId]) return false;
+            seen[companion.companionId] = true;
+            return true;
+        }).map(function(companion, index) {
+            companion.deploymentIndex = index;
+            return companion;
+        });
+    }
+
     function snapshot(hero, enemies, turnBlock, permanentBlock) {
         return {
             hero: {
@@ -183,6 +218,7 @@
             return enemy.hp > 0;
         });
         var deck = (input.deck || []).map(normalizeCard);
+        var companions = normalizeCompanions(input.companions);
         var mods = input.mods || {};
         var rules = input.rules || {};
         var maxTurns = Math.max(1, Number(rules.maxTurns || MAX_TURNS));
@@ -218,7 +254,15 @@
             alch: null,
             sealed: 0,
             curseFizzle: 0,
-            turns: 0
+            turns: 0,
+            companions: companions.map(function(companion) {
+                return {
+                    companionId: companion.companionId,
+                    actorId: companion.actorId,
+                    name: companion.name,
+                    deploymentIndex: companion.deploymentIndex
+                };
+            })
         };
 
         function pushEvent(type, data) {
