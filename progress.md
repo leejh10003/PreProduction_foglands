@@ -101,17 +101,17 @@ normalization, and the nine normal promise timing paths.
   unchanged.
 - Implemented the first 7.1 bridge: `FoglandsMapBattle.makeCombatInput()` now
   carries ordered deployed-companion descriptors without mutating MV party or
-  follower state. The subgoal remains open pending later integration and user
-  verification.
+  follower state. The subgoal was later approved by the user.
 - Added 7.2 resolver normalization: `FoglandsCombat.resolve(input)` now copies
   unique, identified companions in deployment order into
   `result.stats.companions` without applying promise effects or mutating input.
-  The subgoal remains open pending later integration and user verification.
+  The subgoal was later approved by the user.
 - Implemented the 7.3 normal promise paths from the prototype: category rate
   bonuses, start shield, first-turn draw, reshuffle shield, per-turn gambler
   damage, successful-attack poison, and post-victory alchemist healing. Added
-  deterministic regression coverage; 7.3 remains open pending presentation and
-  user verification.
+  deterministic regression coverage; presentation remains in later subgoals.
+- User approved section 12 steps 7.1-7.3 and they are now marked complete;
+  step 7.4 and step 8 remain the next implementation targets.
 
 ### 2026-08-10
 
@@ -729,10 +729,9 @@ Village/run progression from prototype:
 
 ### 12. Companion Actors, Map Deployment Selection, And Combat Promises
 
-**Status: In Progress.** Steps 1-6 are complete and approved. The previously
-approved support-slot rendering is retained as the foundation for steps 7-8;
-their implementation work remains planned. Corrupted behavior remains step 9,
-and purification remains deferred.
+**Status: In Progress.** Steps 1-7.3 are complete and approved. Step 7.4 and
+step 8 remain planned; corrupted behavior remains step 9, and purification
+remains deferred.
 
 Design reference:
 
@@ -877,9 +876,9 @@ Implementation work:
      into the resolver input.
    - Keep the hero as the only combat performer; companions remain buffers and
      do not enter `$gameParty` or default MV battle commands.
-   - Initial implementation adds `makeCompanionCombatInput()`, which snapshots
-     each deployed companion as `{ companionId, actorId, name, deploymentIndex }`;
-     this subgoal remains pending later integration and user verification.
+   - Complete: `makeCompanionCombatInput()` snapshots each deployed companion
+     as `{ companionId, actorId, name, deploymentIndex }` without mutating MV
+     party or follower state.
 
    7.2. **Normalize the companion resolver contract.**
    - Extend `FoglandsCombat.resolve(input)` with a normalized companion list
@@ -887,9 +886,9 @@ Implementation work:
      `$gameSystem`, maps, scenes, windows, and sprites.
    - Preserve deployment order for deterministic labels and evidence, while
      treating companion IDs—not actor names or slot positions—as identity.
-   - Initial implementation normalizes unique identified descriptors into
-     `result.stats.companions`; step 7.3 now consumes that list for normal
-     effects, and this subgoal remains pending user verification.
+    - Complete: unique identified descriptors are normalized into
+      `result.stats.companions` in deployment order, and the resolver remains
+      pure, seeded, and input-immutable.
 
    7.3. **Apply each normal promise at its correct timing.**
    - Apply category probability modifiers during card probability resolution,
@@ -911,9 +910,8 @@ Implementation work:
    | 도박꾼 | Each turn, `50%` chance to deal `6` extra damage |
    | 독술사 | On a successful hero attack, `30%` chance to add `2` poison |
 
-   - Initial implementation applies all nine normal promises with the
-     prototype values above. Activation and state presentation still belong to
-     later subgoals, and this subgoal remains pending user verification.
+    - Complete: all nine normal promises use the prototype values above. Their
+      serializable evidence and map presentation remain in later subgoals.
 
    7.4. **Record serializable companion evidence.**
    - Serialize companion activations, failures, HP changes, and state snapshots
@@ -972,20 +970,17 @@ Implementation work:
 
 Work in this order unless the user explicitly redirects the prototype:
 
-1. Complete section 12 step 7.1: bridge deployment state into battle input.
-2. Complete section 12 step 7.2: normalize the companion resolver contract.
-3. Complete section 12 step 7.3: apply each normal promise at its correct timing.
-4. Complete section 12 step 7.4: serialize companion evidence.
-5. Complete section 12 step 8.1: present companion actions on Map002.
-6. Complete section 12 step 8.2: persist and resume companion presentation.
-7. Complete section 12 step 8.3: add deterministic regression coverage.
-8. Complete section 12 step 9: concealed corrupted behavior and paired
+1. Complete section 12 step 7.4: serialize companion evidence.
+2. Complete section 12 step 8.1: present companion actions on Map002.
+3. Complete section 12 step 8.2: persist and resume companion presentation.
+4. Complete section 12 step 8.3: add deterministic regression coverage.
+5. Complete section 12 step 9: concealed corrupted behavior and paired
    regression tests; keep purification deferred.
-9. Integrate victory/defeat/escape with MV Event Battle Processing branches and define a result review point before or after return.
-10. Persist a notebook entry from `combat.result.stats` before the return restoration clears the battle context.
-11. Add the three-card reward offer, pity state, and reward acquisition after normal victory.
-12. Add the fog-picked-card reveal between deck confirmation and timeline playback.
-13. Expand the Map002 HP bars into a broader status HUD around the existing timed action playback; add speed and instant-complete controls afterward.
-14. Add betrayal evidence and accusation/purification phases after the corrupted
+6. Integrate victory/defeat/escape with MV Event Battle Processing branches and define a result review point before or after return.
+7. Persist a notebook entry from `combat.result.stats` before the return restoration clears the battle context.
+8. Add the three-card reward offer, pity state, and reward acquisition after normal victory.
+9. Add the fog-picked-card reveal between deck confirmation and timeline playback.
+10. Expand the Map002 HP bars into a broader status HUD around the existing timed action playback; add speed and instant-complete controls afterward.
+11. Add betrayal evidence and accusation/purification phases after the corrupted
     companion behavior has produced usable evidence.
-15. Add mythos events, card upgrade/removal workflows, curse acquisition controls, and village/run progression.
+12. Add mythos events, card upgrade/removal workflows, curse acquisition controls, and village/run progression.
