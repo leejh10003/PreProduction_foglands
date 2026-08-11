@@ -171,7 +171,9 @@ Resolver behavior:
 - Normalizes optional `input.companions` descriptors by stable
   `companionId`, preserving array/deployment order and dropping duplicate or
   unidentified entries. The normalized descriptors are copied to
-  `result.stats.companions`; normal promise effects remain a later milestone.
+  `result.stats.companions` and drive the nine normal promise effects; normal
+  promise presentation, corruption, and purification remain separate
+  milestones.
 
 The current input builder uses the party leader's current HP/max HP and MV
 Enemy database `params[0]` (HP) / `params[2]` (ATK). Database values are the

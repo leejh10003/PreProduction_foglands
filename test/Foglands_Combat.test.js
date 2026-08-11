@@ -361,3 +361,154 @@ test('normalizes companion descriptors by stable id without reordering input', f
     ]);
     assert.deepEqual(input.companions, originalCompanions);
 });
+
+test('normal companion category promises raise only their matching card rates', function() {
+    [
+        ['seer', 'attack', 95],
+        ['shield', 'defense', 100],
+        ['bard', 'skill', 95]
+    ].forEach(function(item, index) {
+        const input = makeInput(makeCard({
+            uid: index + 1,
+            cardId: index + 1,
+            category: item[1],
+            successRate: 75,
+            effects: []
+        }), {
+            seed: 1,
+            rules: { maxTurns: 1, baseDraw: 1, cardsPerTurn: 1 }
+        });
+        input.companions = [{
+            companionId: item[0],
+            actorId: index + 2,
+            name: item[0]
+        }];
+
+        const result = FoglandsCombat.resolve(input);
+        const cardUse = firstEvent(result, function(event) {
+            return event.type === 'cardUse';
+        });
+
+        assert.equal(cardUse.probability.effective, item[2], item[0]);
+    });
+});
+
+test('normal start, first-draw, and reshuffle promises apply at their timings', function() {
+    const startInput = makeInput(makeCard({ effects: [] }), {
+        seed: 1,
+        rules: { maxTurns: 1, baseDraw: 1, cardsPerTurn: 1 }
+    });
+    startInput.companions = [
+        { companionId: 'merc', actorId: 6, name: '용병' },
+        { companionId: 'hunter', actorId: 7, name: '사냥꾼' }
+    ];
+    const startResult = FoglandsCombat.resolve(startInput);
+
+    assert.equal(startResult.stats.startShield, 8);
+    assert.equal(startResult.stats.startDraw, 2);
+    assert.equal(startResult.timeline.some(function(event) {
+        return event.type === 'block' && event.reason === 'battleStart' &&
+            event.companion.companionId === 'merc';
+    }), true);
+    assert.equal(startResult.timeline.some(function(event) {
+        return event.type === 'drawNext' && event.reason === 'firstTurn' &&
+            event.companion.companionId === 'hunter';
+    }), true);
+
+    const reshuffleInput = makeInput(makeCard({
+        effects: [{ code: 'damage', value: 1 }]
+    }), {
+        seed: 1,
+        rules: { maxTurns: 2, baseDraw: 2, cardsPerTurn: 1 }
+    });
+    reshuffleInput.companions = [{
+        companionId: 'tinker',
+        actorId: 8,
+        name: '수선공'
+    }];
+    const reshuffleResult = FoglandsCombat.resolve(reshuffleInput);
+
+    assert.equal(reshuffleResult.stats.resh, 1);
+    assert.equal(reshuffleResult.stats.reshShield, 5);
+    assert.equal(reshuffleResult.timeline.some(function(event) {
+        return event.type === 'block' && event.reason === 'reshuffle' &&
+            event.companion.companionId === 'tinker';
+    }), true);
+});
+
+test('normal gambler and poisoner promises use deterministic activation rolls', function() {
+    const gamblerInput = makeInput(makeCard({
+        category: 'attack',
+        effects: [{ code: 'damage', value: 1 }]
+    }), { seed: 1 });
+    gamblerInput.companions = [{
+        companionId: 'gambler',
+        actorId: 9,
+        name: '도박꾼'
+    }];
+    const gamblerResult = FoglandsCombat.resolve(gamblerInput);
+    const gamblerReplay = FoglandsCombat.resolve(gamblerInput);
+    assert.equal(gamblerResult.stats.gambTurns, 1);
+    assert.equal(gamblerResult.stats.gambN, 1);
+    assert.deepEqual(gamblerReplay, gamblerResult);
+    assert.equal(gamblerResult.timeline.some(function(event) {
+        return event.type === 'companionExtraAttack' &&
+            event.companion.companionId === 'gambler' &&
+            event.hpChange.amount === -6;
+    }), true);
+
+    const poisonerInput = makeInput(makeCard({
+        category: 'attack',
+        effects: [{ code: 'damage', value: 1 }]
+    }), { seed: 8 });
+    poisonerInput.companions = [{
+        companionId: 'poisoner',
+        actorId: 10,
+        name: '독술사'
+    }];
+    const poisonerResult = FoglandsCombat.resolve(poisonerInput);
+    assert.equal(poisonerResult.stats.poisN, 1);
+    assert.equal(poisonerResult.timeline.some(function(event) {
+        return event.type === 'companionPoison' &&
+            event.companion.companionId === 'poisoner' &&
+            event.amount === 2;
+    }), true);
+});
+
+test('normal alchemist promise heals after a seeded victory roll', function() {
+    const input = makeInput(makeCard({
+        category: 'attack',
+        effects: [{ code: 'damage', value: 1 }]
+    }), {
+        seed: 1,
+        hero: { actorId: 1, name: 'Hero', hp: 50, maxHp: 100 },
+        enemies: [{
+            instanceId: 1,
+            enemyId: 1,
+            name: 'Bat',
+            actionName: 'Bat',
+            hp: 1,
+            maxHp: 1,
+            attack: 0,
+            animationId: 0
+        }]
+    });
+    input.companions = [{
+        companionId: 'alch',
+        actorId: 5,
+        name: '연금술사'
+    }];
+
+    const result = FoglandsCombat.resolve(input);
+
+    assert.deepEqual(result.stats.alch, {
+        activated: true,
+        amount: 12,
+        roll: 37
+    });
+    assert.equal(result.finalState.hero.hp, 62);
+    assert.equal(result.timeline.some(function(event) {
+        return event.type === 'heal' && event.source === 'companion' &&
+            event.companion.companionId === 'alch' && event.amount === 12;
+    }), true);
+});

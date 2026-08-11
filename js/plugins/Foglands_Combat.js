@@ -13,8 +13,13 @@
  * and stores the returned result.
  *
  * The optional input.companions array is normalized by stable companionId and
- * deployment order. Companion effects are intentionally handled by later
- * milestones; this resolver only carries the normalized descriptors forward.
+ * deployment order. Normal companion promises are applied from that
+ * normalized list; corruption and purification remain outside this resolver
+ * milestone.
+ *
+ * Normal promise timings include category probability, battle-start block,
+ * first-turn draw, reshuffle block, per-turn extra damage, successful-attack
+ * poison, and post-victory healing.
  */
 
 (function() {
@@ -219,6 +224,33 @@
         });
         var deck = (input.deck || []).map(normalizeCard);
         var companions = normalizeCompanions(input.companions);
+        var companionById = Object.create(null);
+        companions.forEach(function(companion) {
+            companionById[companion.companionId] = companion;
+        });
+
+        function companion(id) {
+            return companionById[id] || null;
+        }
+
+        function companionSource(id) {
+            var selected = companion(id);
+            if (!selected) return null;
+            return {
+                companionId: selected.companionId,
+                actorId: selected.actorId,
+                name: selected.name,
+                actionName: selected.name,
+                displaySide: 'left',
+                animationId: 0
+            };
+        }
+
+        var categoryProbabilityBonus = {
+            attack: companion('seer') ? 20 : 0,
+            defense: companion('shield') ? 25 : 0,
+            skill: companion('bard') ? 20 : 0
+        };
         var mods = input.mods || {};
         var rules = input.rules || {};
         var maxTurns = Math.max(1, Number(rules.maxTurns || MAX_TURNS));
@@ -454,6 +486,19 @@
             discard = [];
             stats.resh++;
             pushEvent('reshuffle', { count: stats.resh });
+
+            var tinker = companionSource('tinker');
+            if (tinker) {
+                var amount = 5;
+                turnBlock += amount;
+                stats.reshShield += amount;
+                pushActionEvent('block', {
+                    companion: companionRef(tinker),
+                    amount: amount,
+                    reason: 'reshuffle',
+                    reshuffle: stats.resh
+                }, tinker, 'hero', hero);
+            }
         }
 
         function draw(count) {
@@ -486,6 +531,15 @@
                 instanceId: enemy.instanceId,
                 enemyId: enemy.enemyId,
                 name: enemy.name
+            };
+        }
+
+        function companionRef(source) {
+            if (!source) return null;
+            return {
+                companionId: source.companionId,
+                actorId: source.actorId,
+                name: source.name
             };
         }
 
@@ -522,6 +576,20 @@
                         pushActionEvent('heal', {
                             card: cardRef(card), amount: healed, source: 'lifesteal'
                         }, card, 'hero', hero, healed);
+                    }
+
+                    var poisoner = companionSource('poisoner');
+                    if (amount > 0 && poisoner && random.integer(100) + 1 <= 30) {
+                        var companionPoison = 2;
+                        target.poison += companionPoison;
+                        target.poisonSource = poisoner;
+                        stats.poisN++;
+                        pushLabeledEvent('companionPoison', {
+                            companion: companionRef(poisoner),
+                            target: enemyRef(target),
+                            amount: companionPoison,
+                            total: target.poison
+                        }, poisoner);
                     }
                 } else if (effect.code === 'block') {
                     amount = Math.max(0, Number(effect.value || 0));
@@ -611,6 +679,18 @@
             deckUids: deck.map(function(card) { return card.uid; })
         });
 
+        var merc = companionSource('merc');
+        if (merc) {
+            var startShield = 8;
+            turnBlock += startShield;
+            stats.startShield = startShield;
+            pushActionEvent('block', {
+                companion: companionRef(merc),
+                amount: startShield,
+                reason: 'battleStart'
+            }, merc, 'hero', hero);
+        }
+
         if (!deck.length || !enemies.length || hero.hp <= 0) {
             reason = !deck.length ? 'emptyDeck' : (!enemies.length ? 'noEnemies' : 'heroDefeated');
         } else {
@@ -627,13 +707,24 @@
                 var drawBonus = pendingDraw;
                 pendingProbability = 0;
                 pendingDraw = 0;
-                var drawCount = (mods.sleep ? 4 : baseDraw) + (mods.morning ? 1 : 0) + drawBonus;
+                var hunter = companionSource('hunter');
+                var hunterDraw = turnNumber === 1 && hunter ? 1 : 0;
+                var drawCount = (mods.sleep ? 4 : baseDraw) +
+                    (mods.morning ? 1 : 0) + hunterDraw + drawBonus;
                 if (turnNumber === 1) stats.startDraw = drawCount;
 
                 pushEvent('turnStart', {
                     drawCount: drawCount,
                     probabilityBonus: probabilityBonus
                 });
+
+                if (hunterDraw) {
+                    pushActionEvent('drawNext', {
+                        companion: companionRef(hunter),
+                        amount: hunterDraw,
+                        reason: 'firstTurn'
+                    }, hunter, 'hero', hero);
+                }
 
                 var hand = random.shuffle(draw(drawCount));
                 var usedCards = hand.slice(0, cardsPerTurn);
@@ -675,7 +766,13 @@
 
                     var damageEffect = effectByCode(card, 'damage');
                     var hitCount = damageEffect ? Math.max(1, Number(damageEffect.repeats || 1)) : 1;
-                    var effectiveRate = clamp(card.successRate + probabilityBonus, 5, 100);
+                    var effectiveRate = clamp(
+                        card.successRate +
+                        (categoryProbabilityBonus[card.category] || 0) +
+                        probabilityBonus,
+                        5,
+                        100
+                    );
                     if (mods.blurName && card.name === mods.blurName) {
                         effectiveRate = clamp(effectiveRate - 20, 5, 100);
                     }
@@ -709,6 +806,22 @@
                 if (hero.hp <= 0) {
                     reason = 'heroDefeated';
                     break;
+                }
+
+                var gambler = companionSource('gambler');
+                if (gambler) {
+                    stats.gambTurns++;
+                    var gamblerTarget = firstLivingEnemy(enemies);
+                    if (gamblerTarget && random.integer(100) + 1 <= 50) {
+                        var extraDamage = 6;
+                        gamblerTarget.hp -= extraDamage;
+                        stats.gambN++;
+                        pushHpChangeEvent('companionExtraAttack', {
+                            companion: companionRef(gambler),
+                            target: enemyRef(gamblerTarget),
+                            amount: extraDamage
+                        }, -extraDamage, 'enemy', gamblerTarget, gambler);
+                    }
                 }
 
                 enemies.forEach(function(enemy) {
@@ -776,6 +889,32 @@
         }
 
         var victory = allEnemiesDefeated(enemies) && hero.hp > 0;
+        var alch = companionSource('alch');
+        if (victory && alch) {
+            var alchRoll = random.integer(100) + 1;
+            var alchActivated = alchRoll <= 40;
+            var alchAmount = alchActivated ? Math.min(12, hero.maxHp - hero.hp) : 0;
+            stats.alch = {
+                activated: alchActivated,
+                amount: alchAmount,
+                roll: alchRoll
+            };
+            if (alchActivated) {
+                hero.hp += alchAmount;
+                pushActionEvent('heal', {
+                    companion: companionRef(alch),
+                    amount: alchAmount,
+                    source: 'companion',
+                    roll: alchRoll
+                }, alch, 'hero', hero, alchAmount);
+            } else {
+                pushLabeledEvent('companionHealMiss', {
+                    companion: companionRef(alch),
+                    chance: 40,
+                    roll: alchRoll
+                }, alch);
+            }
+        }
         var resultName = victory ? 'victory' : (timeout ? 'timeout' : 'defeat');
         pushEvent('battleEnd', { result: resultName, reason: reason });
 

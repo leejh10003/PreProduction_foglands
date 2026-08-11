@@ -18,13 +18,12 @@ contracts, and standing implementation rules in `AGENTS.md`.
 - Section 12 step 6's four Map002 companion-support slots were approved by the
   user and are complete.
 - Section 12 steps 7-8 are now split into companion battle logic and its map
-  presentation/verification. Both remain planned; the previously completed
-  support-slot rendering is retained as their foundation.
-- Section 12 step 7.1 has an initial input-bridge implementation, but remains
-  in progress until the later resolver, presentation, and end-to-end checks are
-  available for user verification.
-- Section 12 step 7.2 now has the resolver-side companion normalization in
-  progress; it remains open until later promise integration and user review.
+  presentation/verification. Steps 7.1-7.3 are complete; 7.4 and step 8
+  remain planned. The previously completed support-slot rendering is retained
+  as their foundation.
+- Section 12 steps 7.1-7.3 were approved by the user and are complete. The
+  remaining work is serializable evidence, presentation, persistence, and
+  later corruption behavior.
 
 ## Planned Post-Battle Flow
 
@@ -59,12 +58,12 @@ Run the current regression suites with:
 node --test test/Foglands_Combat.test.js test/Foglands_Companions.test.js
 ```
 
-Current result: 14 tests passed, 0 failed. The suites cover combat healing and
+Current result: 18 tests passed, 0 failed. The suites cover combat healing and
 miss targeting, deterministic resolution, input immutability, the recorded
 two-bat battle seed, new-game deployment initialization, idempotent selection,
 unknown-ID rejection, balloon selection, four-slot capacity enforcement,
-capacity-aware choice activation, old-save normalization, and companion input
-normalization.
+capacity-aware choice activation, old-save normalization, companion input
+normalization, and the nine normal promise timing paths.
 
 ## Change History
 
@@ -108,6 +107,11 @@ normalization.
   unique, identified companions in deployment order into
   `result.stats.companions` without applying promise effects or mutating input.
   The subgoal remains open pending later integration and user verification.
+- Implemented the 7.3 normal promise paths from the prototype: category rate
+  bonuses, start shield, first-turn draw, reshuffle shield, per-turn gambler
+  damage, successful-attack poison, and post-victory alchemist healing. Added
+  deterministic regression coverage; 7.3 remains open pending presentation and
+  user verification.
 
 ### 2026-08-10
 
@@ -884,8 +888,8 @@ Implementation work:
    - Preserve deployment order for deterministic labels and evidence, while
      treating companion IDs—not actor names or slot positions—as identity.
    - Initial implementation normalizes unique identified descriptors into
-     `result.stats.companions`; companion promise effects remain deferred to
-     step 7.3, and this subgoal remains pending user verification.
+     `result.stats.companions`; step 7.3 now consumes that list for normal
+     effects, and this subgoal remains pending user verification.
 
    7.3. **Apply each normal promise at its correct timing.**
    - Apply category probability modifiers during card probability resolution,
@@ -906,6 +910,10 @@ Implementation work:
    | 수선공 | Gain `5` block on every reshuffle |
    | 도박꾼 | Each turn, `50%` chance to deal `6` extra damage |
    | 독술사 | On a successful hero attack, `30%` chance to add `2` poison |
+
+   - Initial implementation applies all nine normal promises with the
+     prototype values above. Activation and state presentation still belong to
+     later subgoals, and this subgoal remains pending user verification.
 
    7.4. **Record serializable companion evidence.**
    - Serialize companion activations, failures, HP changes, and state snapshots
