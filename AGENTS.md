@@ -51,7 +51,8 @@ Responsibilities and behavior:
 - Overrides random encounter handling on `Scene_Map`.
 - Stores battle context in `$gameSystem._foglandsMapBattle`.
 - Transfers the player to the configured battle map.
-- On battle map start, assigns enemy sprites to tagged map events.
+- On battle map start, assigns enemy sprites to tagged map events and maps
+  deployed companion sprites into the support slots in deployment order.
 - Opens battle card selection, confirms player/fog picks, and creates the final 10-card deck.
 - Calls the pure combat resolver once and stores its complete result in save-backed state.
 - Shows player/card and friendly-buff action names at bottom-left and enemy action names at bottom-right without using MV's message window.
@@ -373,6 +374,32 @@ Current slots:
 
 When a troop is routed into the battle map, troop members are assigned to these slots in numeric order.
 
+Companion support slot event convention:
+
+```text
+<FogCompanionSupportSlot:n>
+```
+
+Current support slots are a non-blocking vertical support line behind the hero,
+opposite the enemy formation:
+
+- `FogCompanionSupportSlot1` at `(1, 11)`
+- `FogCompanionSupportSlot2` at `(1, 12)`
+- `FogCompanionSupportSlot3` at `(1, 14)`
+- `FogCompanionSupportSlot4` at `(1, 15)`
+
+They are empty, through-enabled map events for the four selected companions to
+occupy during future combat-buff rendering. Their arrangement is support line
+`x=1` -> hero at `(4, 13)` -> enemy formation at `x=11..15`; all four tiles
+are passable in every direction. On battle-map start,
+`Foglands_MapBattle.js` assigns `$gameSystem`'s `deployedIds` array to these
+slots from top to bottom, using each actor's configured character sheet and
+forcing direction `6` (right). Because MV ignores `setDirection` while an
+event's direction-fix flag is already true, the support-slot renderer briefly
+clears that flag, assigns the right-facing direction, and then restores the
+fix. Support-slot characters have both walking and stepping animation
+disabled. Unused slots remain transparent.
+
 There is also an `EV007` currently present at `(3, 9)`. Do not assume Map002 only contains enemy slots.
 
 ## Map003.json
@@ -588,6 +615,18 @@ MV's Plugin Manager rather than relying only on a manual edit.
 - Store companion deployment in `Foglands_Companions` save-backed state, not
   follower membership or plugin-local variables.
 - Prefer data-driven tags and plugin-level state over edits to engine core files.
+
+## Known Pitfalls And Cautions
+
+- In RPG Maker MV, `Game_CharacterBase.prototype.setDirection(d)` does
+  nothing while `isDirectionFixed()` is true. Event pages can enable
+  `directionFix` during `Game_Event.prototype.setupPageSettings`, so a plugin
+  that needs a fixed right-facing event must temporarily call
+  `setDirectionFix(false)`, then `setDirection(6)`, then
+  `setDirectionFix(true)`.
+- For static support-slot characters, apply `setWalkAnime(false)` and
+  `setStepAnime(false)` after page setup so the event cannot resume its page
+  animation settings during battle-map presentation.
 
 ## Battle Loop Decisions
 

@@ -32,6 +32,8 @@
  *   from enemy note tags:
  *     <FogChar:Monster>
  *     <FogCharIndex:0>
+ * - Companion support slot events tagged with <FogCompanionSupportSlot:n>
+ *   display deployed companions in deployment order, facing right.
  * - The battle flow is split into explicit "selection" and "combat" phases.
  * - Confirming card selection stores player picks, fog picks, and the final
  *   battle deck on the saved battle context.
@@ -1292,6 +1294,70 @@
         });
     };
 
+    FoglandsMapBattle.companionSupportSlotEvents = function() {
+        return $gameMap.events().filter(function(event) {
+            return event && event.event() && event.event().meta &&
+                event.event().meta.FogCompanionSupportSlot;
+        }).sort(function(a, b) {
+            return Number(a.event().meta.FogCompanionSupportSlot) -
+                Number(b.event().meta.FogCompanionSupportSlot);
+        });
+    };
+
+    FoglandsMapBattle.clearCompanionSupportSlot = function(event) {
+        event.setImage('', 0);
+        event.setWalkAnime(false);
+        event.setStepAnime(false);
+        event.setTransparent(true);
+    };
+
+    FoglandsMapBattle.companionSprite = function(companionId) {
+        if (!window.FoglandsCompanions || !window.$dataActors) return null;
+
+        var actorId = FoglandsCompanions.actorId(companionId);
+        var actor = $dataActors[actorId];
+        if (!actor || !actor.characterName) return null;
+
+        return {
+            characterName: actor.characterName,
+            characterIndex: Number(actor.characterIndex || 0)
+        };
+    };
+
+    FoglandsMapBattle.applyCompanionSupportSlot = function(event, companionId) {
+        if (!companionId) {
+            FoglandsMapBattle.clearCompanionSupportSlot(event);
+            return;
+        }
+
+        var sprite = FoglandsMapBattle.companionSprite(companionId);
+        if (!sprite) {
+            FoglandsMapBattle.clearCompanionSupportSlot(event);
+            return;
+        }
+
+        event.setImage(sprite.characterName, sprite.characterIndex);
+        event.setWalkAnime(false);
+        event.setStepAnime(false);
+        event.setDirectionFix(false);
+        event.setDirection(6);
+        event.setDirectionFix(true);
+        event.setPattern(1);
+        event.setTransparent(false);
+    };
+
+    FoglandsMapBattle.setupCompanionSupportSlots = function() {
+        if (!FoglandsMapBattle.isBattleMap()) return;
+
+        var deployedIds = window.FoglandsCompanions ?
+            FoglandsCompanions.deployedIds() : [];
+        var slots = FoglandsMapBattle.companionSupportSlotEvents();
+
+        slots.forEach(function(event, index) {
+            FoglandsMapBattle.applyCompanionSupportSlot(event, deployedIds[index]);
+        });
+    };
+
     // Battle Processing
     Game_Interpreter.prototype.command301 = function() {
         if (!$gameParty.inBattle()) {
@@ -1327,6 +1393,7 @@
         _Scene_Map_start.call(this);
         FoglandsMapBattle.restoreOriginFormation();
         FoglandsMapBattle.setupEnemySlots();
+        FoglandsMapBattle.setupCompanionSupportSlots();
         FoglandsMapBattle.resumePhase();
     };
 

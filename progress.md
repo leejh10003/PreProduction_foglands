@@ -13,9 +13,12 @@ contracts, and standing implementation rules in `AGENTS.md`.
 - Companion-plan steps 1-2 are complete: the actor database and stock-art
   mapping were approved by the user.
 - Revised section 12 steps 3-4 were approved by the user and are complete.
-- Section 12 step 5 now enforces a four-companion deployment limit and is
-  implemented pending user validation. At capacity, removal stays available
-  while an unselected companion's add choice is disabled.
+- Section 12 step 5's four-companion deployment limit was approved by the
+  user and is complete.
+- Section 12 step 6's four Map002 companion-support slots were approved by the
+  user and are complete.
+- Section 12 step 7's deployed-companion support-slot rendering was approved by
+  the user and is complete. Normal companion promises remain next.
 
 ## Planned Post-Battle Flow
 
@@ -57,6 +60,31 @@ unknown-ID rejection, balloon selection, four-slot capacity enforcement,
 capacity-aware choice activation, and old-save normalization.
 
 ## Change History
+
+### 2026-08-11
+
+- Corrected support-slot presentation: deployed companions do not use walking
+  or stepping animation, and their direction is locked to right.
+- Corrected the MV direction-fix ordering so the right-facing direction is set
+  before the event direction is locked.
+- Investigated the remaining direction issue against MV's `setDirection` and
+  event-page behavior: direction-fixed events ignore direction changes. The
+  renderer now clears the flag, sets direction `6`, and restores the flag.
+- User approved section 12 step 5: four deployed companions is now the
+  accepted maximum, with full-capacity add choices disabled and removal still
+  available.
+- Inserted section 12 step 6 before combat promises. Added four empty,
+  through-enabled Map002 events named `FogCompanionSupportSlot1` through `4`,
+  using `<FogCompanionSupportSlot:n>` notes at `(1,11)`, `(1,12)`, `(1,14)`,
+  and `(1,15)`. They form a passable support line behind the hero and opposite
+  the enemy formation; the user approved this placement.
+- Added battle-map rendering for support slots. On Map002 start, the saved
+  `deployedIds` order maps to support slots from top to bottom; companion actor
+  character assets are shown facing right. The new rendering task did not yet
+  apply combat buffs and was held for user acceptance.
+- User approved section 12 step 7 after the direction-fix ordering correction;
+  support-slot rendering is complete. The correction is documented in
+  `AGENTS.md` under Known Pitfalls And Cautions.
 
 ### 2026-08-10
 
@@ -193,9 +221,10 @@ capacity-aware choice activation, and old-save normalization.
 - Curse selection and combat fizzle work, but curse acquisition, purge, and three-curse brand filtering do not.
 - Nine named Map003 companion events have stable note tags, random
   three-variant dialogue, state-dependent add/remove/quit choices, and
-  heart/light-bulb balloon feedback. Save-backed deployment is approved; its
-  newly added four-companion capacity rule remains under user acceptance
-  review.
+  heart/light-bulb balloon feedback. Save-backed deployment and its
+  four-companion capacity rule are approved.
+- Four empty Map002 companion-support slots now define the rear support line
+  for selected-companion rendering; their placement is approved.
 
 ### Not Started
 
@@ -673,9 +702,7 @@ Village/run progression from prototype:
 
 ### 12. Companion Actors, Map Deployment Selection, And Combat Promises
 
-**Status: In Progress.** Steps 1-4 are complete and approved. Step 5's
-four-companion capacity rule is implemented but remains under user review and
-must not be marked complete until the user confirms success. Normal buffs and
+**Status: In Progress.** Steps 1-7 are complete and approved. Normal buffs and
 corrupted behavior remain separate later milestones. Purification remains
 deferred.
 
@@ -784,7 +811,7 @@ Implementation work:
    - Preserve follower order, positions, and directions through save/load,
      transfers, and the existing Map002 battle return-formation workflow.
 
-5. **Implemented; awaiting user acceptance — limit deployment to four
+5. **Complete — limit deployment to four
    companions.**
    - Define the authoritative limit once as `MAX_DEPLOYED = 4` in
      `Foglands_Companions.js` and expose capacity queries through the plugin
@@ -797,7 +824,35 @@ Implementation work:
    - Do not disable an already-selected companion's `오늘 밤 출전에서
      뺀다`; removal must remain available so the player can free a slot.
 
-6. **Implement the nine normal companion promises in combat (corruption and
+6. **Complete — place four Map002 companion
+   support slots behind the hero.**
+   - Use four stationary, through-enabled, pre-created map events. They must
+     not obstruct the battle space while no companion is rendered there.
+   - Name each event `FogCompanionSupportSlot<n>` and tag it
+     `<FogCompanionSupportSlot:n>` so future rendering can resolve it without
+     depending on an event ID.
+   - Keep all slots on passable tiles in a vertical support line at `x=1`:
+     `(1,11)`, `(1,12)`, `(1,14)`, and `(1,15)`.
+   - Preserve the intended battle composition: companion support line -> hero
+     at `(4,13)` -> enemy formation at `x=11..15`.
+   - This task defines battle-map positions only. Rendering selected companion
+     sprites and applying promises belong to the following task.
+
+7. **Complete — display deployed companions in
+   Map002 support slots.**
+   - On battle-map start, read the save-backed `deployedIds` array without
+     reordering it.
+   - Assign the first deployed companion to support slot 1, then continue
+     top-to-bottom through slots 2-4. The visible character direction is right
+     (`6` in RPG Maker MV).
+   - Disable both walking and stepping animation for deployed support-slot
+     characters.
+   - Resolve each companion's character sheet and index from its actor record;
+     leave unused support slots transparent.
+   - This task only instantiates the selected companion map sprites. The
+     promised combat effects remain in the following task.
+
+8. **Implement the nine normal companion promises in combat (corruption and
    purification excluded).**
    - Add normalized companion input to `FoglandsCombat.resolve(input)` and
      keep all authoritative calculations inside the pure seeded resolver.
@@ -825,7 +880,7 @@ Implementation work:
      multi-enemy targeting and save/replay stability where relevant.
    - This milestone deliberately ignores corruption and purification.
 
-7. **Implement corrupted companion malfunction without purification.**
+9. **Implement corrupted companion malfunction without purification.**
    - Persist corruption by stable companion ID and pass it into the resolver;
      never infer it from a sprite, actor name, or current follower index.
    - Match the prototype's concealed malfunction rules:
@@ -849,11 +904,11 @@ Implementation work:
 
 Work in this order unless the user explicitly redirects the prototype:
 
-1. Validate section 12 step 5's four-companion limit in-game and keep it under
+1. Validate section 12 step 7's deployed-companion support-slot rendering in-game and keep it under
    review until the user confirms success.
-2. Complete section 12 step 6: normal companion promises, serialized timeline
+2. Complete section 12 step 8: normal companion promises, serialized timeline
    evidence, presentation, and deterministic tests.
-3. Complete section 12 step 7: concealed corrupted behavior and paired
+3. Complete section 12 step 9: concealed corrupted behavior and paired
    regression tests; keep purification deferred.
 4. Integrate victory/defeat/escape with MV Event Battle Processing branches and define a result review point before or after return.
 5. Persist a notebook entry from `combat.result.stats` before the return restoration clears the battle context.
